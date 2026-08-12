@@ -1,9 +1,13 @@
 from __future__ import annotations
 import sys
 from collections import Counter
-sys.path.insert(0, '/mnt/data')
-import redact_pii
+from pathlib import Path
+from docx import Document
 from pypdf import PdfReader
+
+BASE_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE_DIR))
+import redact_pii
 
 # Manually reviewed gold entities on selected source pages (1, 2, 3, and 119 of PDF).
 GOLD = {
@@ -35,12 +39,9 @@ def norm(s):
     return ' '.join(s.lower().split())
 
 
-from pathlib import Path
-from docx import Document
-
 def sample_eval():
-    pdf_file = Path('/Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/Red Herring Prospectus.pdf')
-    docx_file = Path('/Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/Red Herring Prospectus.docx')
+    pdf_file = BASE_DIR / "Red Herring Prospectus.pdf"
+    docx_file = BASE_DIR / "Red Herring Prospectus.docx"
 
     if pdf_file.exists():
         reader = PdfReader(str(pdf_file))

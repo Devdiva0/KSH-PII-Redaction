@@ -239,35 +239,14 @@ class FakeFactory:
     def __init__(self):
         self.counters: dict[str, int] = {}
         self.mapping: dict[tuple[str, str], str] = {}
-        self.person_names = ["John Doe", "Jane Smith", "Peter Parker", "Alex Morgan",
-                             "Taylor Brown", "Jordan Lee", "Sam Wilson", "Avery Patel"]
 
     def fake(self, pii_type: str, original: str) -> str:
-        key = (pii_type, original.lower())
+        key = (pii_type, original.lower().strip())
         if key in self.mapping:
             return self.mapping[key]
         n = self.counters.get(pii_type, 0) + 1
         self.counters[pii_type] = n
-        if pii_type == "PERSON":
-            value = self.person_names[(n-1) % len(self.person_names)]
-        elif pii_type == "EMAIL":
-            value = f"contact{n:03d}@example.com"
-        elif pii_type == "PHONE":
-            value = f"+91 90000 {n:05d}"
-        elif pii_type == "COMPANY":
-            value = f"Example Company {n:03d} Private Limited"
-        elif pii_type == "ADDRESS":
-            value = f"{100+n} Example Street, Pune, Maharashtra 4110{n%10}1, India"
-        elif pii_type == "SSN":
-            value = f"123-45-{6000+n:04d}"
-        elif pii_type == "CREDIT_CARD":
-            value = "4111 1111 1111 1111"
-        elif pii_type == "DOB":
-            value = f"01 January {1980+n:04d}"
-        elif pii_type == "IP_ADDRESS":
-            value = f"192.0.2.{n}"
-        else:
-            value = f"FAKE_{pii_type}_{n:03d}"
+        value = f"[{pii_type}_{n:03d}]"
         self.mapping[key] = value
         return value
 
@@ -315,6 +294,26 @@ def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[st
             for cell in row.cells:
                 for p in cell.paragraphs:
                     process_p(p)
+
+    for section in doc.sections:
+        for header in (section.header, getattr(section, 'first_page_header', None)):
+            if header and hasattr(header, 'paragraphs'):
+                for p in header.paragraphs:
+                    process_p(p)
+                for t in getattr(header, 'tables', []):
+                    for row in t.rows:
+                        for cell in row.cells:
+                            for p in cell.paragraphs:
+                                process_p(p)
+        for footer in (section.footer, getattr(section, 'first_page_footer', None)):
+            if footer and hasattr(footer, 'paragraphs'):
+                for p in footer.paragraphs:
+                    process_p(p)
+                for t in getattr(footer, 'tables', []):
+                    for row in t.rows:
+                        for cell in row.cells:
+                            for p in cell.paragraphs:
+                                process_p(p)
 
     doc.save(str(output_docx))
     return paragraph_count, total_replacements, category_counts
@@ -394,7 +393,7 @@ def main() -> None:
 
     output_path = args.output_docx
     if output_path is None:
-        output_path = args.input_file.with_name(f"{args.input_file.stem}_Redacted.docx")
+        output_path = args.input_file.with_name("KSH_PII_Redacted_RHP.docx")
 
     if args.input_file.suffix.lower() == ".docx":
         units, total_reps, cat_counts = docx_to_docx(args.input_file, output_path)

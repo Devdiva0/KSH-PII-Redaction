@@ -1,6 +1,6 @@
 # PII Redaction Tool 🛡️
 
-A lightweight, high-precision Python tool for detecting personally identifiable information (PII) from corporate legal documents (PDF or DOCX) and generating a redacted Word document (`.docx`) with consistent fake replacements.
+A lightweight, high-precision Python tool for detecting personally identifiable information (PII) from corporate legal documents (PDF or DOCX) and generating a redacted Word document (`.docx`) with consistent bracketed placeholders (e.g. `[PERSON_001]`, `[EMAIL_001]`).
 
 🚀 **Live Interactive Demo:** [https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/](https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/)
 
@@ -19,8 +19,8 @@ A lightweight, high-precision Python tool for detecting personally identifiable 
   - 💳 **Credit Card Numbers** *(Validated with Luhn Algorithm)*
   - 🎂 **Dates of Birth (DOBs)**
   - 🌐 **IPv4 Addresses**
-- **Consistent Pseudonymization**: Maps every unique original entity to the exact same fake placeholder throughout the document.
-- **Zero False Positives on Financials**: Carefully avoids redacting order numbers, financial figures, percentages, page numbers, or generic dates.
+- **Consistent Pseudonymization**: Maps every unique original entity to the exact same bracketed token placeholder throughout the document (e.g., `Kushal Hegde` → `[PERSON_001]`).
+- **High Precision Detection**: High-precision structured PII detection with explicit negative controls for financial figures, order numbers, invoice numbers, page numbers and percentages.
 - **Dependency-Light**: Built with lightweight standard Python rules & `python-docx` / `pypdf` for 100% reproducibility.
 
 ---
@@ -42,11 +42,11 @@ flowchart LR
 
 | Category | Original Entity (Example) | Redacted Replacement |
 |---|---|---|
-| **Full Name** | Kushal Subbayya Hegde | John Doe |
-| **Email** | cs.connect@kshinternational.com | contact001@example.com |
-| **Phone** | + 91 20 45053237 | +91 90000 00001 |
-| **Company** | KSH International Limited | Example Company 001 Private Limited |
-| **Address** | 11/3, Village Birdewadi, Pune 410501 | 101 Example Street, Pune, Maharashtra 411001, India |
+| **Full Name** | Kushal Subbayya Hegde | `[PERSON_001]` |
+| **Email** | cs.connect@kshinternational.com | `[EMAIL_001]` |
+| **Phone** | + 91 20 45053237 | `[PHONE_001]` |
+| **Company** | KSH International Limited | `[COMPANY_001]` |
+| **Address** | 11/3, Village Birdewadi, Pune 410501 | `[ADDRESS_001]` |
 
 ---
 
@@ -65,7 +65,7 @@ pip install -r requirements.txt
 
 ```bash
 # Redact any DOCX or PDF file
-python redact_pii.py "Red Herring Prospectus.docx" KSH_International_Red_Herring_Prospectus_Redacted.docx
+python redact_pii.py "Red Herring Prospectus.pdf" KSH_PII_Redacted_RHP.docx
 ```
 
 *Output:*
@@ -73,18 +73,18 @@ python redact_pii.py "Red Herring Prospectus.docx" KSH_International_Red_Herring
 ==============================================================
                 PII REDACTION TOOL — SUMMARY                
 ==============================================================
- Input File  : Red Herring Prospectus.docx
- Output DOCX : KSH_International_Red_Herring_Prospectus_Redacted.docx
- Scope       : 1006 paragraphs
- Total PII   : 564 redaction replacements made
+ Input File  : Red Herring Prospectus.pdf
+ Output DOCX : KSH_PII_Redacted_RHP.docx
+ Scope       : 126 pages
+ Total PII   : 485 redaction replacements made
 --------------------------------------------------------------
  PII Category              | Redactions Made     
 --------------------------------------------------------------
  Full Names                | 203                 
- Company Names             | 198                 
- Email Addresses           | 70                  
- Physical Addresses        | 44                  
- Phone Numbers             | 49                  
+ Company Names             | 148                 
+ Email Addresses           | 52                  
+ Physical Addresses        | 46                  
+ Phone Numbers             | 36                  
 ==============================================================
 ```
 
@@ -100,9 +100,10 @@ python evaluate_pii.py
 
 - [redact_pii.py](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/redact_pii.py) — Core detection and redaction script.
 - [evaluate_pii.py](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/evaluate_pii.py) — Evaluation test suite & precision metrics calculator.
-- [KSH_International_Red_Herring_Prospectus_Redacted.docx](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/KSH_International_Red_Herring_Prospectus_Redacted.docx) — Primary deliverable output document.
+- [KSH_PII_Redacted_RHP.docx](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/KSH_PII_Redacted_RHP.docx) — Primary deliverable output document.
 - [evaluation_report.md](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/evaluation_report.md) — Comprehensive evaluation report with Precision, Recall, and F1 score analysis.
 - [requirements.txt](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/requirements.txt) — Minimal dependency manifest.
+- [app.py](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/app.py) — Interactive Streamlit web application.
 
 ---
 
@@ -110,7 +111,7 @@ python evaluate_pii.py
 
 - **Regex for Structured PII**: High-precision regular expressions for emails, phone numbers, SSNs, credit cards (validated via the **Luhn Algorithm**), dates of birth, and IPv4 addresses.
 - **Heuristics & Gazetteers for Unstructured Entities**: Document-specific seed gazetteers for full person names and corporate legal entities to prevent false positives on capitalized legal prospectus headings, combined with location keyword and PIN code heuristics for physical addresses.
-- **Consistent Pseudonymization**: A stateful `FakeFactory` maps every unique original PII entity to the exact same synthetic placeholder across all pages.
+- **Consistent Pseudonymization**: A stateful `FakeFactory` maps every unique original PII entity to the exact same bracketed token placeholder across all pages.
 - **Synthetic Test Coverage**: Synthetic test cases were constructed to verify detector coverage for required PII categories (e.g. SSNs, Credit Cards, DOBs, IP addresses) that were absent from the sampled document.
 
 ---
