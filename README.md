@@ -2,6 +2,8 @@
 
 A lightweight, high-precision Python tool for detecting personally identifiable information (PII) from corporate legal documents (PDF or DOCX) and generating a redacted Word document (`.docx`) with consistent fake replacements.
 
+🚀 **Live Interactive Demo:** [https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/](https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/)
+
 ---
 
 ## 🌟 Key Features
