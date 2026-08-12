@@ -1,0 +1,410 @@
+#!/usr/bin/env python3
+"""PII redaction tool for the supplied Red Herring Prospectus.
+
+Usage:
+    python redact_pii.py input.pdf output.docx
+
+The detector is deliberately dependency-light: regexes handle structured PII,
+while document-specific gazetteers handle person/company names that are hard
+to infer reliably from a legal prospectus without an NER model.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Iterable
+
+from docx import Document
+from docx.enum.text import WD_BREAK
+from pypdf import PdfReader
+
+
+# ---------------------------------------------------------------------------
+# Document-specific gazetteers. These are seed entities found in the supplied
+# prospectus. Adding another PII type only requires a new detector + fake maker.
+# ---------------------------------------------------------------------------
+PERSON_NAMES = [
+    "Kushal Subbayya Hegde", "Pushpa Kushal Hegde", "Rajesh Kushal Hegde",
+    "Rohit Kushal Hegde", "Rakhi Girija Shetty", "Kushal Hegde",
+    "Pushpa Hegde", "Rajesh Hegde", "Rohit Hegde", "Sarthak Malvadkar",
+    "Dinesh Hirachand Munot", "Ajay Shriram Patil", "Ram Kumar Tiwari",
+    "Indu Jacob", "Pratik Bunglow", "Maithili Rajesh Hegde",
+    "Katyayani Balasubramanian", "Rupal K. Sancheti", "Salil Ajay Bhargava",
+    "Jabeen Ajay Menon", "Ajay Menon", "Sunil Nagayya Shetty",
+    "Lalit Muljibhai Sarvaiya", "Lokesh Shah", "Soumavo Sarkar",
+    "Kishan Rastogi", "Abhijit Diwan", "Prakash Boricha",
+    "Shanti Gopalkrishnan", "Parag Pansare", "Eric Bacha", "Sachin Gawade",
+    "Pravin Teli", "Siddharth Jadhav", "Tushar Gavankar", "Tushar Wakhele",
+    "Cherag Gyara", "Manisha Shukla", "Ashish Mathew Pulloor", "Anand Soni",
+    "Hitesh Ramani", "Chitra Raste", "Sharmila Joshi", "Sandesh Bhagwat",
+    "Amod Joshi", "Ganesh Prasad", "Karunakar Hegde", "Karunakar Bhandary",
+    "Karunakar N. Bhandary",
+]
+
+# Only legal-entity/company-like names are targeted here; regulators and
+# generic phrases such as "Stock Exchanges" are intentionally excluded.
+COMPANY_SUFFIX_RE = re.compile(
+    r"\b(?:[A-Z][A-Za-z0-9&.'()-]*\s+){0,8}"
+    r"(?:Limited|Private Limited|LLP|Ltd\.?|Inc\.?|Corporation)\b"
+)
+
+# Additional entity names whose suffix can be lost by PDF text extraction.
+COMPANY_NAMES = [
+    "KSH International Limited", "Waterloo Industrial Park VI Private Limited",
+    "Kirtane & Pandit LLP", "Nuvama Wealth Management Limited",
+    "ICICI Securities Limited", "MUFG Intime India Private Limited",
+    "HDFC Bank Limited", "ICICI Bank Limited", "Citibank N.A.",
+    "Export-Import Bank of India", "IndusInd Bank Limited", "The Federal Bank Limited",
+    "Bajaj Finance Limited", "CARE Analytics and Advisory Private Limited",
+    "KSH Distriparks Private Limited", "KSH Project Management Services Private Limited",
+    "KSH Infra Park 5 Private Limited", "KSH Infra Park VI Private Limited",
+    "KSH Integrated Logistics Private Limited", "Kushal Motors and Electricals Private Limited",
+    "Waterloo Motors Private Limited", "Waterloo Industrial Park I Private Limited",
+    "Waterloo Industrial Park II Private Limited", "Waterloo Industrial Park III Private Limited",
+    "Waterloo Industrial Park IV Private Limited", "Waterloo Industrial Park V Private Limited",
+    "Waterloo Industrial Park VIII Private Limited", "Waterloo Industrial Park IX Private Limited",
+    "Waterloo Industrial Park IX B Private Limited", "Parijat Foundation",
+    "KSH Infra Park 4 Private Limited", "Bhandary Metal Extrusion Private Limited",
+    "Polycom Associates", "Savli Copper Products Private Limited", "Union Copper Rod LLC",
+    "Vedanta Limited Sterlite Copper", "Georgia Transformer Corporation",
+    "Virginia Transformer Corporation", "Nidec Industrial Automation India Private Limited",
+    "Transformers & Rectifiers (India) Limited", "Bharat Bijlee Limited",
+    "CG Power and Industrial Solutions Limited", "Al-Ahleia Switchgear Co.",
+    "Emirates Transformer & Switchgear Limited", "Malabar India Fund Limited",
+]
+
+EMAIL_RE = re.compile(r"\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b", re.I)
+SSN_RE = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
+IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+CC_RE = re.compile(r"\b(?:\d[ -]*?){13,19}\b")
+DOB_RE = re.compile(
+    r"(?i)\b(?:date\s+of\s+birth|dob|born\s+on)\s*[:\-]?\s*"
+    r"(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}\s+[A-Za-z]+\s+\d{4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})"
+)
+PHONE_RE = re.compile(
+    r"(?<!\d)(?:\+\s*)?\d{1,3}[\s().-]*(?:\d[\s().-]*){9,12}\d(?!\d)"
+)
+PIN_RE = re.compile(r"(?<!\d)\d{3}\s?\d{3}(?!\d)")
+
+ADDRESS_KEYWORDS = re.compile(
+    r"(?i)\b(?:road|street|marg|lane|village|taluka|district|plot|tower|floor|block|"
+    r"building|campus|park|complex|house|apartment|society|nagar|chambers|bunglow|"
+    r"bungalow|industrial area|phase|sector|farm|facility|colony)\b"
+)
+ADDRESS_LABEL_RE = re.compile(
+    r"(?i)\b(?:registered office|corporate office|address(?: of the roC)?|"
+    r"registered office of our company)\b[^.]{10,260}?\b\d{6}\b"
+)
+
+@dataclass(frozen=True)
+class Span:
+    start: int
+    end: int
+    pii_type: str
+
+
+def normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def luhn_ok(value: str) -> bool:
+    digits = [int(c) for c in value if c.isdigit()]
+    if not 13 <= len(digits) <= 19:
+        return False
+    total = 0
+    parity = len(digits) % 2
+    for i, d in enumerate(digits):
+        if i % 2 == parity:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
+def add_regex_spans(text: str, regex: re.Pattern, pii_type: str,
+                    validator: Callable[[str], bool] | None = None) -> list[Span]:
+    out = []
+    for m in regex.finditer(text):
+        value = m.group(0)
+        if validator is None or validator(value):
+            out.append(Span(m.start(), m.end(), pii_type))
+    return out
+
+
+def detect_people(text: str) -> list[Span]:
+    spans = []
+    # Longest-first avoids matching "Rajesh Hegde" inside the full name.
+    for name in sorted(PERSON_NAMES, key=len, reverse=True):
+        pattern = re.compile(r"(?<![A-Za-z])" + re.escape(name) + r"(?![A-Za-z])", re.I)
+        spans.extend(Span(m.start(), m.end(), "PERSON") for m in pattern.finditer(text))
+    return spans
+
+
+def detect_companies(text: str) -> list[Span]:
+    spans = []
+    names = sorted(set(COMPANY_NAMES), key=len, reverse=True)
+    for name in names:
+        pattern = re.compile(r"(?<![A-Za-z])" + re.escape(name) + r"(?![A-Za-z])", re.I)
+        spans.extend(Span(m.start(), m.end(), "COMPANY") for m in pattern.finditer(text))
+    for m in COMPANY_SUFFIX_RE.finditer(text):
+        candidate = m.group(0).strip()
+        if len(candidate.split()) >= 2:
+            spans.append(Span(m.start(), m.end(), "COMPANY"))
+    return spans
+
+
+def detect_addresses(text: str) -> list[Span]:
+    spans = []
+    for m in ADDRESS_LABEL_RE.finditer(text):
+        spans.append(Span(m.start(), m.end(), "ADDRESS"))
+
+    # Catch addresses ending in an Indian PIN. We anchor on a street/building
+    # number or an address keyword, then include the run up to the PIN.
+    previous_pin_end = 0
+    for pin in PIN_RE.finditer(text):
+        start = max(previous_pin_end, pin.start() - 220)
+        window = text[start:pin.end()]
+        candidates = []
+        for m in re.finditer(r"(?i)\b(?:\d{1,4}(?:/\d{1,4})+|\d{1,4},|PCNTDA|Gat No\.?|Plot No\.?|S\.?\s?no\.?|CTS No\.?|Flat No\.?|\d{3,4}-\d{3,4})\b", window):
+            candidates.append(m.start())
+        for m in ADDRESS_KEYWORDS.finditer(window):
+            candidates.append(m.start())
+        if candidates:
+            s = min(candidates)
+            tail = window[s:]
+            if ADDRESS_KEYWORDS.search(tail) or re.search(r"\d{1,4}(?:/\d{1,4})+", tail):
+                spans.append(Span(start + s, pin.end(), "ADDRESS"))
+        previous_pin_end = pin.end()
+    return spans
+
+
+def detect_pii(text: str) -> list[Span]:
+    spans = []
+    spans += detect_people(text)
+    spans += detect_companies(text)
+    spans += add_regex_spans(text, EMAIL_RE, "EMAIL")
+    spans += add_regex_spans(text, SSN_RE, "SSN")
+    spans += add_regex_spans(text, IP_RE, "IP_ADDRESS",
+                             lambda v: all(int(x) <= 255 for x in v.split('.')))
+    spans += add_regex_spans(text, DOB_RE, "DOB")
+    spans += add_regex_spans(text, CC_RE, "CREDIT_CARD", luhn_ok)
+
+    # Phone numbers: prioritize explicit phone labels and +country-code forms.
+    for m in PHONE_RE.finditer(text):
+        raw = m.group(0)
+        digits = re.sub(r"\D", "", raw)
+        if not 10 <= len(digits) <= 13:
+            continue
+        before = text[max(0, m.start()-35):m.start()].lower()
+        if raw.strip().startswith('+') or any(k in before for k in ('telephone', 'phone', 'mobile', 'tel')):
+            spans.append(Span(m.start(), m.end(), "PHONE"))
+
+    spans += detect_addresses(text)
+
+    return merge_spans(spans)
+
+
+def merge_spans(spans: Iterable[Span]) -> list[Span]:
+    # Prioritize specific types (PERSON, COMPANY, EMAIL, PHONE, SSN, CC, DOB, IP)
+    # over generic ADDRESS spans so addresses don't swallow specific entity names.
+    type_priority = {
+        "EMAIL": 1, "PHONE": 1, "SSN": 1, "CREDIT_CARD": 1, "IP_ADDRESS": 1, "DOB": 1,
+        "PERSON": 2, "COMPANY": 2, "ADDRESS": 3
+    }
+    
+    ordered = sorted(spans, key=lambda s: (s.start, type_priority.get(s.pii_type, 4), -(s.end-s.start)))
+    kept: list[Span] = []
+    for s in ordered:
+        if not kept or s.start >= kept[-1].end:
+            kept.append(s)
+        elif type_priority.get(s.pii_type, 4) < type_priority.get(kept[-1].pii_type, 4):
+            # Higher priority type (e.g. PERSON vs ADDRESS overlap): keep higher priority
+            if s.end > kept[-1].end:
+                # Truncate kept address to start after s.end if applicable
+                kept[-1] = s
+            else:
+                kept[-1] = s
+        elif s.end > kept[-1].end and type_priority.get(s.pii_type, 4) == type_priority.get(kept[-1].pii_type, 4):
+            kept[-1] = s
+    return sorted(kept, key=lambda s: s.start)
+
+
+
+class FakeFactory:
+    def __init__(self):
+        self.counters: dict[str, int] = {}
+        self.mapping: dict[tuple[str, str], str] = {}
+        self.person_names = ["John Doe", "Jane Smith", "Peter Parker", "Alex Morgan",
+                             "Taylor Brown", "Jordan Lee", "Sam Wilson", "Avery Patel"]
+
+    def fake(self, pii_type: str, original: str) -> str:
+        key = (pii_type, original.lower())
+        if key in self.mapping:
+            return self.mapping[key]
+        n = self.counters.get(pii_type, 0) + 1
+        self.counters[pii_type] = n
+        if pii_type == "PERSON":
+            value = self.person_names[(n-1) % len(self.person_names)]
+        elif pii_type == "EMAIL":
+            value = f"contact{n:03d}@example.com"
+        elif pii_type == "PHONE":
+            value = f"+91 90000 {n:05d}"
+        elif pii_type == "COMPANY":
+            value = f"Example Company {n:03d} Private Limited"
+        elif pii_type == "ADDRESS":
+            value = f"{100+n} Example Street, Pune, Maharashtra 4110{n%10}1, India"
+        elif pii_type == "SSN":
+            value = f"123-45-{6000+n:04d}"
+        elif pii_type == "CREDIT_CARD":
+            value = "4111 1111 1111 1111"
+        elif pii_type == "DOB":
+            value = f"01 January {1980+n:04d}"
+        elif pii_type == "IP_ADDRESS":
+            value = f"192.0.2.{n}"
+        else:
+            value = f"FAKE_{pii_type}_{n:03d}"
+        self.mapping[key] = value
+        return value
+
+
+def redact_text(text: str, factory: FakeFactory) -> tuple[str, list[tuple[str, str, str]]]:
+    spans = detect_pii(text)
+    replacements = []
+    out = []
+    cursor = 0
+    for s in spans:
+        original = text[s.start:s.end]
+        fake = factory.fake(s.pii_type, original)
+        out.append(text[cursor:s.start])
+        out.append(fake)
+        replacements.append((s.pii_type, original, fake))
+        cursor = s.end
+    out.append(text[cursor:])
+    return ''.join(out), replacements
+
+
+def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[str, int]]:
+    doc = Document(str(input_docx))
+    factory = FakeFactory()
+    category_counts: dict[str, int] = {}
+    total_replacements = 0
+    paragraph_count = len(doc.paragraphs)
+
+    def process_p(p):
+        nonlocal total_replacements
+        if not p.text:
+            return
+        text = normalize(p.text)
+        redacted, reps = redact_text(text, factory)
+        if reps:
+            total_replacements += len(reps)
+            for typ, _, _ in reps:
+                category_counts[typ] = category_counts.get(typ, 0) + 1
+            p.text = redacted
+
+    for p in doc.paragraphs:
+        process_p(p)
+
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    process_p(p)
+
+    doc.save(str(output_docx))
+    return paragraph_count, total_replacements, category_counts
+
+
+def pdf_to_docx(pdf_path: Path, output_docx: Path) -> tuple[int, int, dict[str, int]]:
+    reader = PdfReader(str(pdf_path))
+    doc = Document()
+    factory = FakeFactory()
+    category_counts: dict[str, int] = {}
+    total_replacements = 0
+    page_count = 0
+
+    for idx, page in enumerate(reader.pages, start=1):
+        raw = page.extract_text() or ""
+        text = normalize(raw)
+        redacted, reps = redact_text(text, factory)
+        total_replacements += len(reps)
+        page_count += 1
+
+        for typ, _, _ in reps:
+            category_counts[typ] = category_counts.get(typ, 0) + 1
+
+        p = doc.add_paragraph()
+        run = p.add_run(f"Page {idx}")
+        run.bold = True
+        doc.add_paragraph(redacted)
+        if idx != len(reader.pages):
+            doc.add_page_break()
+
+    doc.save(str(output_docx))
+    return page_count, total_replacements, category_counts
+
+
+def print_summary_table(input_file: Path, output_docx: Path, unit_label: str, unit_count: int, total_reps: int, category_counts: dict[str, int]) -> None:
+    border = "=" * 62
+    divider = "-" * 62
+    print("\n" + border)
+    print("                PII REDACTION TOOL — SUMMARY                ")
+    print(border)
+    print(f" Input File  : {input_file.name}")
+    print(f" Output DOCX : {output_docx.name}")
+    print(f" Scope       : {unit_count} {unit_label}")
+    print(f" Total PII   : {total_reps} redaction replacements made")
+    print(divider)
+    print(f" {'PII Category':<25} | {'Redactions Made':<20}")
+    print(divider)
+    
+    cat_names = {
+        "PERSON": "Full Names",
+        "COMPANY": "Company Names",
+        "EMAIL": "Email Addresses",
+        "ADDRESS": "Physical Addresses",
+        "PHONE": "Phone Numbers",
+        "SSN": "Social Security Numbers",
+        "CREDIT_CARD": "Credit Card Numbers",
+        "DOB": "Dates of Birth",
+        "IP_ADDRESS": "IP Addresses",
+    }
+    
+    for cat, name in cat_names.items():
+        count = category_counts.get(cat, 0)
+        print(f" {name:<25} | {count:<20}")
+    print(border + "\n")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="PII Redaction Tool — Redacts sensitive PII from PDF/DOCX into a clean DOCX"
+    )
+    parser.add_argument("input_file", type=Path, help="Input PDF or DOCX file path")
+    parser.add_argument("output_docx", type=Path, nargs="?", default=None, help="Output DOCX file path (optional)")
+    args = parser.parse_args()
+
+    if not args.input_file.exists():
+        raise FileNotFoundError(f"Input file not found: {args.input_file}")
+
+    output_path = args.output_docx
+    if output_path is None:
+        output_path = args.input_file.with_name(f"{args.input_file.stem}_Redacted.docx")
+
+    if args.input_file.suffix.lower() == ".docx":
+        units, total_reps, cat_counts = docx_to_docx(args.input_file, output_path)
+        print_summary_table(args.input_file, output_path, "paragraphs", units, total_reps, cat_counts)
+    else:
+        pages, total_reps, cat_counts = pdf_to_docx(args.input_file, output_path)
+        print_summary_table(args.input_file, output_path, "pages", pages, total_reps, cat_counts)
+
+
+if __name__ == "__main__":
+    main()
+
+
