@@ -58,9 +58,9 @@ Synthetic fixture result: **8 TP, 0 FP, 0 FN → Precision 100.0%, Recall 100.0%
 
 ## 4. Full-document run
 
-The supplied `Red Herring Prospectus.pdf` contains 126 pages. Running the tool produced **557 redaction replacements** across the document:
+The supplied `Red Herring Prospectus.pdf` contains 126 pages. Running the tool produced **569 redaction replacements** across the document:
 
-- Full names: 203
+- Full names: 215
 - Company names: 220
 - Email addresses: 52
 - Physical addresses: 46

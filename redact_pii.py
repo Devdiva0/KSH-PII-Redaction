@@ -29,20 +29,24 @@ from pypdf import PdfReader
 # ---------------------------------------------------------------------------
 PERSON_NAMES = [
     "Kushal Subbayya Hegde", "Pushpa Kushal Hegde", "Rajesh Kushal Hegde",
-    "Rohit Kushal Hegde", "Rakhi Girija Shetty", "Kushal Hegde",
-    "Pushpa Hegde", "Rajesh Hegde", "Rohit Hegde", "Sarthak Malvadkar",
+    "Rohit Kushal Hegde", "Rakhi Girija Shetty", "Sangeeta Ramprasad Rai",
+    "Varun Badai", "Maithili Rajesh Hegde", "Kushal Hegde", "Pushpa Hegde",
+    "Rajesh Hegde", "Rohit Hegde", "Rakhi Hegde", "Sangeeta Hegde",
+    "Sangeeta Rai", "Ramprasad Rai", "Girija Shetty", "Sarthak Malvadkar",
     "Dinesh Hirachand Munot", "Ajay Shriram Patil", "Ram Kumar Tiwari",
-    "Indu Jacob", "Pratik Bunglow", "Maithili Rajesh Hegde",
-    "Katyayani Balasubramanian", "Rupal K. Sancheti", "Salil Ajay Bhargava",
-    "Jabeen Ajay Menon", "Ajay Menon", "Sunil Nagayya Shetty",
-    "Lalit Muljibhai Sarvaiya", "Lokesh Shah", "Soumavo Sarkar",
-    "Kishan Rastogi", "Abhijit Diwan", "Prakash Boricha",
-    "Shanti Gopalkrishnan", "Parag Pansare", "Eric Bacha", "Sachin Gawade",
-    "Pravin Teli", "Siddharth Jadhav", "Tushar Gavankar", "Tushar Wakhele",
-    "Cherag Gyara", "Manisha Shukla", "Ashish Mathew Pulloor", "Anand Soni",
-    "Hitesh Ramani", "Chitra Raste", "Sharmila Joshi", "Sandesh Bhagwat",
-    "Amod Joshi", "Ganesh Prasad", "Karunakar Hegde", "Karunakar Bhandary",
-    "Karunakar N. Bhandary",
+    "Indu Jacob", "Pratik Bunglow", "Katyayani Balasubramanian",
+    "Rupal K. Sancheti", "Salil Ajay Bhargava", "Jabeen Ajay Menon",
+    "Ajay Menon", "Sunil Nagayya Shetty", "Lalit Muljibhai Sarvaiya",
+    "Lokesh Shah", "Soumavo Sarkar", "Kishan Rastogi", "Abhijit Diwan",
+    "Prakash Boricha", "Shanti Gopalkrishnan", "Parag Pansare", "Eric Bacha",
+    "Sachin Gawade", "Pravin Teli", "Siddharth Jadhav", "Tushar Gavankar",
+    "Tushar Wakhele", "Cherag Gyara", "Manisha Shukla", "Ashish Mathew Pulloor",
+    "Anand Soni", "Hitesh Ramani", "Chitra Raste", "Sharmila Joshi",
+    "Sandesh Bhagwat", "Amod Joshi", "Ganesh Prasad", "Karunakar Hegde",
+    "Karunakar Bhandary", "Karunakar N. Bhandary",
+    # Standalone names for isolated table/branch entries
+    "Kushal", "Pushpa", "Rajesh", "Rohit", "Rakhi", "Sangeeta", "Maithili",
+    "Varun", "Badai", "Bhandary",
 ]
 
 # Only legal-entity/company-like names are targeted here; regulators and

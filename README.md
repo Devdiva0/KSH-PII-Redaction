@@ -83,11 +83,11 @@ python redact_pii.py "Red Herring Prospectus.pdf" KSH_PII_Redacted_RHP.docx
  Input File  : Red Herring Prospectus.pdf
  Output DOCX : KSH_PII_Redacted_RHP.docx
  Scope       : 126 pages
- Total PII   : 557 redaction replacements made
+ Total PII   : 569 redaction replacements made
 --------------------------------------------------------------
  PII Category              | Redactions Made     
 --------------------------------------------------------------
- Full Names                | 203                 
+ Full Names                | 215                 
  Company Names             | 220                 
  Email Addresses           | 52                  
  Physical Addresses        | 46                  
