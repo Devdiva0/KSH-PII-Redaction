@@ -1,6 +1,6 @@
 # PII Redaction Tool 🛡️
 
-A lightweight, high-precision Python tool for detecting personally identifiable information (PII) from corporate legal documents (PDF or DOCX) and generating a redacted Word document (`.docx`) with consistent bracketed placeholders (e.g. `[PERSON_001]`, `[EMAIL_001]`).
+A lightweight, high-precision Python tool for detecting personally identifiable information (PII) from corporate legal documents (PDF) and generating a redacted Word document (`.docx`) with consistent bracketed placeholders (e.g. `[PERSON_001]`, `[EMAIL_001]`).
 
 🚀 **Live Interactive Demo:** [https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/](https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/)
 
@@ -8,7 +8,7 @@ A lightweight, high-precision Python tool for detecting personally identifiable 
 
 ## 🌟 Key Features
 
-- **Multi-Format Support**: Reads both `.pdf` and `.docx` input files seamlessly.
+- **PDF Document Support**: Reads source PDF files seamlessly and reconstructs full redacted page content into `.docx`.
 - **8+ PII Categories Detected**:
   - 👤 **Full Names**
   - 🏢 **Company & Legal Entity Names**
@@ -29,7 +29,7 @@ A lightweight, high-precision Python tool for detecting personally identifiable 
 
 ```mermaid
 flowchart LR
-    A[Input File: PDF / DOCX] --> B[Extract & Normalize Text]
+    A[Input File: PDF] --> B[Extract & Normalize Text]
     B --> C[PII Detectors: Regex & Gazetteers]
     C --> D[Luhn & Rule Validation]
     D --> E[FakeFactory Pseudonymizer]
@@ -64,7 +64,7 @@ pip install -r requirements.txt
 ### 2. Run Redaction Tool
 
 ```bash
-# Redact any DOCX or PDF file
+# Redact the supplied PDF prospectus
 python redact_pii.py "Red Herring Prospectus.pdf" KSH_PII_Redacted_RHP.docx
 ```
 

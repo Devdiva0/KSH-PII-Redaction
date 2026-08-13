@@ -11,11 +11,12 @@ st.set_page_config(
 
 st.title("🛡️ PII Redaction Tool")
 st.markdown(
-    "Upload the **Red Herring Prospectus PDF** (or any PDF/DOCX document) to automatically detect personally "
-    "identifiable information (PII) and download a redacted `.docx` document with consistent bracketed placeholders (e.g. `[PERSON_001]`, `[EMAIL_001]`)."
+    "Upload a **PDF document** to automatically detect personally "
+    "identifiable information (PII) and download a redacted `.docx` document "
+    "with consistent bracketed placeholders such as `[PERSON_001]` and `[EMAIL_001]`."
 )
 
-uploaded_file = st.file_uploader("Choose a PDF or DOCX file", type=["pdf", "docx"])
+uploaded_file = st.file_uploader("Choose a PDF file", type=["pdf"])
 
 if uploaded_file is not None:
     st.info(f"📄 Loaded file: **{uploaded_file.name}** ({uploaded_file.size / 1024:.1f} KB)")
@@ -30,12 +31,8 @@ if uploaded_file is not None:
             tmp_out_path = tmp_in_path.with_name(f"{tmp_in_path.stem}_redacted.docx")
 
             try:
-                if suffix.lower() == ".docx" and hasattr(redact_pii, "docx_to_docx"):
-                    units, reps, cat_counts = redact_pii.docx_to_docx(tmp_in_path, tmp_out_path)
-                    unit_label = "paragraphs"
-                else:
-                    units, reps, cat_counts = redact_pii.pdf_to_docx(tmp_in_path, tmp_out_path)
-                    unit_label = "pages"
+                units, reps, cat_counts = redact_pii.pdf_to_docx(tmp_in_path, tmp_out_path)
+                unit_label = "pages"
 
                 st.success(f"✅ Successfully processed {units} {unit_label} and performed {reps} redactions!")
 
