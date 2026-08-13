@@ -98,12 +98,13 @@ python evaluate_pii.py
 
 ## 📁 Repository File Structure
 
-- [redact_pii.py](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/redact_pii.py) — Core detection and redaction script.
-- [evaluate_pii.py](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/evaluate_pii.py) — Evaluation test suite & precision metrics calculator.
-- [KSH_PII_Redacted_RHP.docx](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/KSH_PII_Redacted_RHP.docx) — Primary deliverable output document.
-- [evaluation_report.md](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/evaluation_report.md) — Comprehensive evaluation report with Precision, Recall, and F1 score analysis.
-- [requirements.txt](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/requirements.txt) — Minimal dependency manifest.
-- [app.py](file:///Users/devangi.yadavicloud.com/Desktop/KSH_PII_Redaction_Submission/app.py) — Interactive Streamlit web application.
+- `redact_pii.py` — Core detection and redaction script.
+- `evaluate_pii.py` — Evaluation test suite & precision metrics calculator.
+- `KSH_PII_Redacted_RHP.docx` — Primary deliverable output document.
+- `evaluation_report.md` — Comprehensive evaluation report with Precision, Recall, and F1 score analysis.
+- `requirements.txt` — Minimal dependency manifest.
+- `app.py` — Interactive Streamlit web application interface.
+- `Red Herring Prospectus.pdf` — Source legal prospectus input document.
 
 ---
 

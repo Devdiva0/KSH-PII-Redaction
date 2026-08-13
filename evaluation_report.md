@@ -15,7 +15,7 @@ To prevent automated compliance scanners from misidentifying synthetic replaceme
 - `[COMPANY_001]`, `[COMPANY_002]`, ...
 - `[ADDRESS_001]`, `[ADDRESS_002]`, ...
 
-Programmatic post-scan of `Red Herring Prospectus_Redacted.docx` confirmed:
+Programmatic post-scan of `KSH_PII_Redacted_RHP.docx` confirmed:
 - **0 email addresses** remain in text (`@` search)
 - **0 phone numbers** remain in text
 - **0 flagged person names** remain in text
