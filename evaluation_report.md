@@ -84,6 +84,6 @@ The zero counts for SSN, credit card, DOB, and IP address mean no such instances
 Run:
 
 ```bash
-.venv/bin/python redact_pii.py "Red Herring Prospectus.pdf" "Red Herring Prospectus_Redacted.docx"
-.venv/bin/python evaluate_pii.py
+python redact_pii.py "Red Herring Prospectus.pdf" KSH_PII_Redacted_RHP.docx
+python evaluate_pii.py
 ```
