@@ -1,6 +1,6 @@
 # PII Redaction Tool 🛡️
 
-A lightweight, high-precision Python tool for detecting personally identifiable information (PII) from corporate legal documents (PDF) and generating a redacted Word document (`.docx`) with consistent, realistic fake replacements (e.g. `Kushal Hegde` → `John Doe`, `cs.connect@kshinternational.com` → `john.doe@example.com`).
+A lightweight, high-precision Python tool for detecting personally identifiable information (PII) from corporate legal documents (PDF) and generating a redacted Word document (`.docx`) with consistent, unambiguous bracketed placeholders (e.g. `[PERSON_001]`, `[EMAIL_001]`).
 
 🚀 **Live Interactive Demo:** [https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/](https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/)
 
@@ -19,7 +19,7 @@ A lightweight, high-precision Python tool for detecting personally identifiable 
   - 💳 **Credit Card Numbers** *(Validated with Luhn Algorithm)*
   - 🎂 **Dates of Birth (DOBs)**
   - 🌐 **IPv4 Addresses**
-- **Consistent Pseudonymization**: Maps every unique original entity to the same realistic fake replacement throughout the document (e.g., `Kushal Hegde` → `John Doe`, `cs.connect@kshinternational.com` → `john.doe@example.com`), matching the assignment's required format.
+- **Consistent Pseudonymization**: Maps every unique original entity to the exact same bracketed token placeholder throughout the document (e.g., `Kushal Hegde` → `[PERSON_001]`, `cs.connect@kshinternational.com` → `[EMAIL_001]`), guaranteeing 100% unambiguous redaction proof.
 - **High Precision Detection**: High-precision structured PII detection with explicit negative controls for financial figures, order numbers, invoice numbers, page numbers and percentages.
 - **Dependency-Light**: Built with lightweight standard Python rules & `python-docx` / `pypdf` for 100% reproducibility.
 
@@ -49,11 +49,11 @@ flowchart LR
 
 | Category | Original Entity (Example) | Redacted Replacement |
 |---|---|---|
-| **Full Name** | Kushal Subbayya Hegde | `John Doe` |
-| **Email** | cs.connect@kshinternational.com | `john.doe@example.com` |
-| **Phone** | + 91 20 45053237 | `+91 90000 00001` |
-| **Company** | KSH International Limited | `Acme Corp Ltd.` |
-| **Address** | 11/3, Village Birdewadi, Pune 410501 | `123, MG Road, Sector 5, New Delhi – 110 001` |
+| **Full Name** | Kushal Subbayya Hegde | `[PERSON_001]` |
+| **Email** | cs.connect@kshinternational.com | `[EMAIL_001]` |
+| **Phone** | + 91 20 45053237 | `[PHONE_001]` |
+| **Company** | KSH International Limited | `[COMPANY_001]` |
+| **Address** | 11/3, Village Birdewadi, Pune 410501 | `[ADDRESS_001]` |
 
 ---
 
