@@ -27,7 +27,7 @@ if uploaded_file is not None:
                 tmp_in.write(uploaded_file.getvalue())
                 tmp_in_path = Path(tmp_in.name)
 
-            tmp_out_path = tmp_in_path.with_name("KSH_PII_Redacted_RHP.docx")
+            tmp_out_path = tmp_in_path.with_name(f"{tmp_in_path.stem}_redacted.docx")
 
             try:
                 if suffix.lower() == ".docx" and hasattr(redact_pii, "docx_to_docx"):
