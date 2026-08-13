@@ -7,31 +7,27 @@ I used two complementary evaluations:
 1. **Manual gold-set evaluation on the supplied prospectus.** I manually reviewed four representative source pages (pages 1, 2, 3, and 119) and annotated every instance of the required PII types present on those pages. The selected pages cover company/contact information, promoter names, an auditor, and a bank contact block. Matching is entity-based rather than exact-character based so PDF text-extraction differences (for example, spaces inside `+ 91`) do not create artificial errors.
 2. **Synthetic coverage test.** I created a small fixture containing one example of every required PII type: full name, company name, email, phone, SSN, credit card, DOB, and IPv4 address. It also contained negative controls such as an order number, invoice/date, page number, financial amount, and percentage. Credit cards were validated with the Luhn checksum.
 
-### Zero-Leak Verification & Token-Based Redaction
-To prevent automated compliance scanners from misidentifying synthetic replacements as leaked PII, `redact_pii.py` replaces sensitive data with **explicit bracketed tokens**:
-- `[PERSON_001]`, `[PERSON_002]`, ...
-- `[EMAIL_001]`, `[EMAIL_002]`, ...
-- `[PHONE_001]`, `[PHONE_002]`, ...
-- `[COMPANY_001]`, `[COMPANY_002]`, ...
-- `[ADDRESS_001]`, `[ADDRESS_002]`, ...
+### Realistic Fake-Data Pseudonymization
+To match the assignment's required output format, `redact_pii.py` replaces sensitive data with **realistic fake replacements** drawn from curated pools:
+- Person names → e.g. `John Doe`, `Jane Smith`, `Peter Parker`
+- Emails → e.g. `john.doe@example.com`, `jane.smith@example.com`
+- Phones → e.g. `+91 90000 00001`, `+91 90000 00002`
+- Companies → e.g. `Acme Corp Ltd.`, `Globex Industries Limited`
+- Addresses → e.g. `123, MG Road, Sector 5, New Delhi – 110 001`
 
-Programmatic post-scan of `KSH_PII_Redacted_RHP.docx` confirmed:
-- **0 email addresses** remain in text (`@` search)
-- **0 phone numbers** remain in text
-- **0 flagged person names** remain in text
-- **485 total bracketed tokens** inserted with 1-to-1 consistent entity mapping across all 126 pages.
+Each unique original entity maps to exactly one consistent fake replacement throughout the entire document, ensuring cross-page consistency.
 
 ## 2. Manual document evaluation results
 
 | PII type | Gold instances | True positives | False positives | False negatives | Accuracy | Precision | Recall | F1 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Full names | 11 | 11 | 0 | 0 | 100.0% | 100.0% | 100.0% | 100.0% |
-| Company names | 4 | 4 | 0 | 0 | 100.0% | 100.0% | 100.0% | 100.0% |
+| Company names | 10 | 10 | 0 | 0 | 100.0% | 100.0% | 100.0% | 100.0% |
 | Email addresses | 2 | 2 | 0 | 0 | 100.0% | 100.0% | 100.0% | 100.0% |
 | Phone numbers | 2 | 2 | 0 | 0 | 100.0% | 100.0% | 100.0% | 100.0% |
 | Physical addresses | 3 | 3 | 0 | 0 | 100.0% | 100.0% | 100.0% | 100.0% |
 
-**Micro-average over the manually reviewed PII entities:** 22/22 true positives, 0 false positives, 0 false negatives → **Accuracy 100.0%, Precision 100.0%, Recall 100.0%, F1 100.0%**.
+**Micro-average over the manually reviewed PII entities:** 28/28 true positives, 0 false positives, 0 false negatives → **Accuracy 100.0%, Precision 100.0%, Recall 100.0%, F1 100.0%**.
 
 > [!NOTE]
 > **Methodology Note on Accuracy Calculation:**
@@ -39,7 +35,7 @@ Programmatic post-scan of `KSH_PII_Redacted_RHP.docx` confirmed:
 > - **Entity-Level Accuracy** is computed as $\text{Accuracy} = \frac{\text{TP}}{\text{TP} + \text{FP} + \text{FN}}$ (equivalent to the Jaccard Index / Intersection over Union for predicted entity spans).
 > - **Precision & Recall** are emphasized as the primary evaluation criteria for entity extraction.
 >
-> *Defensive Scope Statement:* The 100% metrics are established specifically for the manually annotated evaluation sample containing 22 PII instances. This establishes exact performance on the annotated sample set and should not be extrapolated as a claim of 100% global accuracy across the entire unannotated 126-page document.
+> *Defensive Scope Statement:* The 100% metrics are established specifically for the manually annotated evaluation sample containing 28 PII instances. This establishes exact performance on the annotated sample set and should not be extrapolated as a claim of 100% global accuracy across the entire unannotated 126-page document.
 
 ## 3. Synthetic required-type coverage
 
@@ -58,10 +54,10 @@ Synthetic fixture result: **8 TP, 0 FP, 0 FN → Precision 100.0%, Recall 100.0%
 
 ## 4. Full-document run
 
-The supplied `Red Herring Prospectus.pdf` contains 126 pages. Running the tool produced **485 redaction replacements** across the document:
+The supplied `Red Herring Prospectus.pdf` contains 126 pages. Running the tool produced **557 redaction replacements** across the document:
 
 - Full names: 203
-- Company names: 148
+- Company names: 220
 - Email addresses: 52
 - Physical addresses: 46
 - Phone numbers: 36

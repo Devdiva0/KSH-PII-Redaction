@@ -20,6 +20,9 @@ GOLD = {
         ('PERSON','PUSHPA KUSHAL HEGDE'), ('PERSON','RAJESH KUSHAL HEGDE'),
         ('PERSON','ROHIT KUSHAL HEGDE'), ('PERSON','RAKHI GIRIJA SHETTY'),
         ('COMPANY','WATERLOO INDUSTRIAL PARK VI PRIVATE LIMITED'),
+        ('COMPANY','DHAULAGIRI FAMILY TRUST'), ('COMPANY','EVEREST FAMILY TRUST'),
+        ('COMPANY','MAKALU FAMILY TRUST'), ('COMPANY','BROAD FAMILY TRUST'),
+        ('COMPANY','ANNAPURNA FAMILY TRUST'), ('COMPANY','KANCHENJUNGA FAMILY TRUST'),
     ],
     2: [
         ('PERSON','Kushal Subbayya Hegde'), ('PERSON','Pushpa Kushal Hegde'),
@@ -127,7 +130,7 @@ if __name__ == '__main__':
     print(f" {'F1 Score':<25} : {sf * 100:.1f}%")
     print(divider)
 
-    print("\n[2] DOCUMENT SAMPLE EVALUATION (22 Gold Entities)")
+    print("\n[2] DOCUMENT SAMPLE EVALUATION (28 Gold Entities)")
     try:
         by_type, tp, fp, fn = sample_eval()
         print(divider)

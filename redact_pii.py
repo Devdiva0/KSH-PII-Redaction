@@ -75,6 +75,9 @@ COMPANY_NAMES = [
     "Transformers & Rectifiers (India) Limited", "Bharat Bijlee Limited",
     "CG Power and Industrial Solutions Limited", "Al-Ahleia Switchgear Co.",
     "Emirates Transformer & Switchgear Limited", "Malabar India Fund Limited",
+    # Promoter Family Trusts
+    "Dhaulagiri Family Trust", "Everest Family Trust", "Makalu Family Trust",
+    "Broad Family Trust", "Annapurna Family Trust", "Kanchenjunga Family Trust",
 ]
 
 EMAIL_RE = re.compile(r"\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b", re.I)
@@ -235,6 +238,87 @@ def merge_spans(spans: Iterable[Span]) -> list[Span]:
 
 
 
+# Realistic fake-data pools, matching the assignment's spec format.
+_FAKE_PERSON = [
+    "John Doe", "Jane Smith", "Peter Parker", "Alex Morgan", "Taylor Brown",
+    "Jordan Lee", "Sam Wilson", "Chris Blake", "Morgan Reed", "Casey Quinn",
+    "Riley Adams", "Drew Campbell", "Avery Hart", "Jamie Stone", "Skyler West",
+    "Logan Grey", "Dakota Mills", "Reese Palmer", "Hayden Brooks", "Finley Shaw",
+    "Rowan Clarke", "Ellis Grant", "Kendall Price", "Emery Fox", "Harper Kim",
+    "Blake Turner", "Quinn Nash", "Parker Lane", "Sage Porter", "Emerson Cole",
+    "Phoenix Day", "Remy Cross", "Devon Ray", "Cameron Bell", "Oakley Wood",
+    "Kai Rivera", "Jesse Hale", "Shawn Marsh", "Max Steele", "Noel Page",
+    "Ari Flynn", "Lane Barrett", "Tatum York", "Jules Pratt", "Sasha Bloom",
+    "Corey Vance", "Toby Hines", "Briar Kent", "Lennox Roy", "Zion Peak",
+]
+_FAKE_EMAIL = [
+    "john.doe@example.com", "jane.smith@example.com", "peter.parker@example.com",
+    "alex.morgan@example.com", "taylor.brown@example.com", "jordan.lee@example.com",
+    "sam.wilson@example.com", "chris.blake@example.com", "morgan.reed@example.com",
+    "casey.quinn@example.com", "riley.adams@example.com", "drew.campbell@example.com",
+    "avery.hart@example.com", "jamie.stone@example.com", "skyler.west@example.com",
+    "logan.grey@example.com", "dakota.mills@example.com", "reese.palmer@example.com",
+    "hayden.brooks@example.com", "finley.shaw@example.com",
+]
+_FAKE_PHONE = [
+    "+91 90000 00001", "+91 90000 00002", "+91 90000 00003",
+    "+91 90000 00004", "+91 90000 00005", "+91 90000 00006",
+    "+91 90000 00007", "+91 90000 00008", "+91 90000 00009",
+    "+91 90000 00010", "+91 90000 00011", "+91 90000 00012",
+    "+91 90000 00013", "+91 90000 00014", "+91 90000 00015",
+    "+91 90000 00016", "+91 90000 00017", "+91 90000 00018",
+    "+91 90000 00019", "+91 90000 00020",
+]
+_FAKE_COMPANY = [
+    "Acme Corp Ltd.", "Globex Industries Limited", "Umbrella Holdings Private Limited",
+    "Initech Solutions Limited", "Hooli Technologies Limited", "Pied Piper Inc.",
+    "Stark Industries Limited", "Wayne Enterprises Limited", "Oscorp Limited",
+    "Vance Refrigeration LLC", "Dunder Mifflin Private Limited", "Soylent Corp Limited",
+    "Tyrell Corporation", "Cyberdyne Systems Limited", "Massive Dynamic Inc.",
+    "Aperture Science LLC", "Wonka Industries Limited", "Weyland Corp Limited",
+    "Bluth Company LLC", "Sterling Cooper Limited",
+]
+_FAKE_ADDRESS = [
+    "123, MG Road, Sector 5, New Delhi – 110 001",
+    "456, Park Street, Block B, Kolkata – 700 016",
+    "789, Brigade Road, 2nd Floor, Bengaluru – 560 025",
+    "101, Anna Salai, T Nagar, Chennai – 600 017",
+    "202, FC Road, Shivajinagar, Pune – 411 005",
+    "303, SG Highway, Thaltej, Ahmedabad – 380 054",
+    "404, Link Road, Andheri West, Mumbai – 400 053",
+    "505, Banjara Hills, Road No 12, Hyderabad – 500 034",
+    "606, Residency Road, Richmond Town, Bengaluru – 560 025",
+    "707, Civil Lines, Prayagraj – 211 001",
+]
+_FAKE_SSN = [
+    "000-12-3456", "000-34-5678", "000-56-7890", "000-78-9012", "000-90-1234",
+]
+_FAKE_CC = [
+    "4000 0000 0000 0000", "4111 0000 0000 0000", "4222 0000 0000 0000",
+    "4333 0000 0000 0000", "4444 0000 0000 0000",
+]
+_FAKE_DOB = [
+    "date of birth: 01/01/1990", "date of birth: 15/06/1985",
+    "date of birth: 22/03/1978", "date of birth: 10/11/1992",
+    "date of birth: 05/09/2000",
+]
+_FAKE_IP = [
+    "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5",
+]
+
+_FAKE_POOLS: dict[str, list[str]] = {
+    "PERSON": _FAKE_PERSON,
+    "EMAIL": _FAKE_EMAIL,
+    "PHONE": _FAKE_PHONE,
+    "COMPANY": _FAKE_COMPANY,
+    "ADDRESS": _FAKE_ADDRESS,
+    "SSN": _FAKE_SSN,
+    "CREDIT_CARD": _FAKE_CC,
+    "DOB": _FAKE_DOB,
+    "IP_ADDRESS": _FAKE_IP,
+}
+
+
 class FakeFactory:
     def __init__(self):
         self.counters: dict[str, int] = {}
@@ -244,9 +328,13 @@ class FakeFactory:
         key = (pii_type, original.lower().strip())
         if key in self.mapping:
             return self.mapping[key]
+        pool = _FAKE_POOLS.get(pii_type, [])
         n = self.counters.get(pii_type, 0) + 1
         self.counters[pii_type] = n
-        value = f"[{pii_type}_{n:03d}]"
+        if pool:
+            value = pool[(n - 1) % len(pool)]
+        else:
+            value = f"[{pii_type}_{n:03d}]"
         self.mapping[key] = value
         return value
 

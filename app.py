@@ -13,7 +13,8 @@ st.title("🛡️ PII Redaction Tool")
 st.markdown(
     "Upload a **PDF document** to automatically detect personally "
     "identifiable information (PII) and download a redacted `.docx` document "
-    "with consistent bracketed placeholders such as `[PERSON_001]` and `[EMAIL_001]`."
+    "with consistent realistic fake replacements (e.g. `Kushal Hegde` → `John Doe`, "
+    "`cs.connect@ksh...` → `john.doe@example.com`)."
 )
 
 uploaded_file = st.file_uploader("Choose a PDF file", type=["pdf"])

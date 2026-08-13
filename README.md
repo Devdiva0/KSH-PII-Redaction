@@ -19,7 +19,7 @@ A lightweight, high-precision Python tool for detecting personally identifiable 
   - 💳 **Credit Card Numbers** *(Validated with Luhn Algorithm)*
   - 🎂 **Dates of Birth (DOBs)**
   - 🌐 **IPv4 Addresses**
-- **Consistent Pseudonymization**: Maps every unique original entity to the exact same bracketed token placeholder throughout the document (e.g., `Kushal Hegde` → `[PERSON_001]`).
+- **Consistent Pseudonymization**: Maps every unique original entity to the same realistic fake replacement throughout the document (e.g., `Kushal Hegde` → `John Doe`, `cs.connect@kshinternational.com` → `john.doe@example.com`), matching the assignment's required format.
 - **High Precision Detection**: High-precision structured PII detection with explicit negative controls for financial figures, order numbers, invoice numbers, page numbers and percentages.
 - **Dependency-Light**: Built with lightweight standard Python rules & `python-docx` / `pypdf` for 100% reproducibility.
 
@@ -42,11 +42,11 @@ flowchart LR
 
 | Category | Original Entity (Example) | Redacted Replacement |
 |---|---|---|
-| **Full Name** | Kushal Subbayya Hegde | `[PERSON_001]` |
-| **Email** | cs.connect@kshinternational.com | `[EMAIL_001]` |
-| **Phone** | + 91 20 45053237 | `[PHONE_001]` |
-| **Company** | KSH International Limited | `[COMPANY_001]` |
-| **Address** | 11/3, Village Birdewadi, Pune 410501 | `[ADDRESS_001]` |
+| **Full Name** | Kushal Subbayya Hegde | `John Doe` |
+| **Email** | cs.connect@kshinternational.com | `john.doe@example.com` |
+| **Phone** | + 91 20 45053237 | `+91 90000 00001` |
+| **Company** | KSH International Limited | `Acme Corp Ltd.` |
+| **Address** | 11/3, Village Birdewadi, Pune 410501 | `123, MG Road, Sector 5, New Delhi – 110 001` |
 
 ---
 
@@ -76,12 +76,12 @@ python redact_pii.py "Red Herring Prospectus.pdf" KSH_PII_Redacted_RHP.docx
  Input File  : Red Herring Prospectus.pdf
  Output DOCX : KSH_PII_Redacted_RHP.docx
  Scope       : 126 pages
- Total PII   : 485 redaction replacements made
+ Total PII   : 557 redaction replacements made
 --------------------------------------------------------------
  PII Category              | Redactions Made     
 --------------------------------------------------------------
  Full Names                | 203                 
- Company Names             | 148                 
+ Company Names             | 220                 
  Email Addresses           | 52                  
  Physical Addresses        | 46                  
  Phone Numbers             | 36                  
@@ -112,17 +112,18 @@ python evaluate_pii.py
 
 - **Regex for Structured PII**: High-precision regular expressions for emails, phone numbers, SSNs, credit cards (validated via the **Luhn Algorithm**), dates of birth, and IPv4 addresses.
 - **Heuristics & Gazetteers for Unstructured Entities**: Document-specific seed gazetteers for full person names and corporate legal entities to prevent false positives on capitalized legal prospectus headings, combined with location keyword and PIN code heuristics for physical addresses.
-- **Consistent Pseudonymization**: A stateful `FakeFactory` maps every unique original PII entity to the exact same bracketed token placeholder across all pages.
+- **Consistent Pseudonymization**: A stateful `FakeFactory` maps every unique original PII entity to the same realistic fake replacement across all pages, matching the assignment's required output format (e.g. `Rashi Patil` → `John Doe`).
 - **Synthetic Test Coverage**: Synthetic test cases were constructed to verify detector coverage for required PII categories (e.g. SSNs, Credit Cards, DOBs, IP addresses) that were absent from the sampled document.
+- **Scoping Note**: Company website URLs (e.g. `www.kshinternational.com`) are intentionally left unredacted as they are publicly available corporate identifiers, not personal PII.
 
 ---
 
 ## 📊 Evaluation Summary
 
-The document evaluation used a manually annotated sample containing 22 PII instances. The detector output was compared with the ground-truth spans using overlap/exact matching. The system achieved 22 true positives, 0 false positives and 0 false negatives, resulting in **100% Precision**, **100% Recall**, **100% Accuracy**, and **100% F1** on this evaluation sample. Synthetic cases were additionally used to test detector coverage for required PII types that were absent from the sampled document.
+The document evaluation used a manually annotated sample containing 28 PII instances (including 6 promoter family trusts). The detector output was compared with the ground-truth spans using overlap/exact matching. The system achieved 28 true positives, 0 false positives and 0 false negatives, resulting in **100% Precision**, **100% Recall**, **100% Accuracy**, and **100% F1** on this evaluation sample. Synthetic cases were additionally used to test detector coverage for required PII types that were absent from the sampled document.
 
 > [!NOTE]
-> *Note on Scope:* The 100% metric is established for the manually annotated evaluation sample of 22 PII instances and synthetic benchmark controls; it represents exact performance on the annotated sample and should not be extrapolated as a claim of 100% global accuracy across the entire unannotated 126-page document.
+> *Note on Scope:* The 100% metric is established for the manually annotated evaluation sample of 28 PII instances and synthetic benchmark controls; it represents exact performance on the annotated sample and should not be extrapolated as a claim of 100% global accuracy across the entire unannotated 126-page document.
 
 ---
 
