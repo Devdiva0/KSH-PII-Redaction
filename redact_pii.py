@@ -323,6 +323,7 @@ class FakeFactory:
     def __init__(self):
         self.counters: dict[str, int] = {}
         self.mapping: dict[tuple[str, str], str] = {}
+        self.used: dict[str, set[str]] = {}  # pii_type -> set of fake values already assigned
 
     def fake(self, pii_type: str, original: str) -> str:
         key = (pii_type, original.lower().strip())
@@ -331,10 +332,23 @@ class FakeFactory:
         pool = _FAKE_POOLS.get(pii_type, [])
         n = self.counters.get(pii_type, 0) + 1
         self.counters[pii_type] = n
+        used_set = self.used.setdefault(pii_type, set())
         if pool:
-            value = pool[(n - 1) % len(pool)]
+            base = pool[(n - 1) % len(pool)]
+            if n <= len(pool):
+                value = base
+            else:
+                # Pool exhausted — append disambiguator to avoid collision
+                value = f"{base} ({n})"
+            # Defensive: guarantee uniqueness even in edge cases
+            while value in used_set:
+                n += 1
+                self.counters[pii_type] = n
+                base = pool[(n - 1) % len(pool)]
+                value = f"{base} ({n})"
         else:
             value = f"[{pii_type}_{n:03d}]"
+        used_set.add(value)
         self.mapping[key] = value
         return value
 

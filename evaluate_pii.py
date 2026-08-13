@@ -110,6 +110,46 @@ def metric(tp, fp, fn):
     return precision, recall, accuracy, f1
 
 
+def check_no_collisions():
+    """Run the full pipeline and verify that every fake value maps to exactly one real entity.
+
+    Returns a dict of {pii_type: {fake_value: [real_values]}} for any collisions found,
+    and a summary dict of {pii_type: (unique_real, unique_fake)} for reporting.
+    """
+    pdf_file = BASE_DIR / "Red Herring Prospectus.pdf"
+    if not pdf_file.exists():
+        return {}, {}
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    factory = redact_pii.FakeFactory()
+    reader = PdfReader(str(pdf_file))
+    for page in reader.pages:
+        raw = page.extract_text() or ""
+        text = redact_pii.normalize(raw)
+        redact_pii.redact_text(text, factory)
+
+    # Invert the factory mapping: fake_value -> set of distinct real values
+    reverse: dict[str, dict[str, set[str]]] = {}  # pii_type -> {fake -> {real, ...}}
+    summary: dict[str, tuple[int, int]] = {}
+    for (pii_type, real_norm), fake_val in factory.mapping.items():
+        reverse.setdefault(pii_type, {}).setdefault(fake_val, set()).add(real_norm)
+
+    collisions: dict[str, dict[str, list[str]]] = {}
+    for pii_type, fake_map in reverse.items():
+        unique_real = len(set().union(*fake_map.values()))
+        unique_fake = len(fake_map)
+        summary[pii_type] = (unique_real, unique_fake)
+        for fake_val, reals in fake_map.items():
+            if len(reals) > 1:
+                collisions.setdefault(pii_type, {})[fake_val] = sorted(reals)
+
+    tmp_path.unlink(missing_ok=True)
+    return collisions, summary
+
+
 if __name__ == '__main__':
     border = "=" * 74
     divider = "-" * 74
@@ -150,7 +190,29 @@ if __name__ == '__main__':
     except FileNotFoundError as e:
         print(f" Skipped: {e}")
 
+    print("\n[3] FAKE-VALUE COLLISION CHECK")
+    print(divider)
+    try:
+        collisions, summary = check_no_collisions()
+        if summary:
+            print(f" {'PII Type':<15} | {'Unique Real':<12} | {'Unique Fake':<12} | {'Status'}")
+            print(" " + "-" * 60)
+            for pii_type in sorted(summary):
+                unique_real, unique_fake = summary[pii_type]
+                status = "✅ OK" if unique_real == unique_fake else f"❌ COLLISION ({unique_real} real → {unique_fake} fake)"
+                print(f" {pii_type:<15} | {unique_real:<12} | {unique_fake:<12} | {status}")
+        if collisions:
+            print(divider)
+            print(" ❌ COLLISIONS DETECTED — the following fake values map to multiple real entities:")
+            for pii_type, fake_map in sorted(collisions.items()):
+                for fake_val, reals in sorted(fake_map.items()):
+                    print(f"   [{pii_type}] \"{fake_val}\" ← {reals}")
+            print(divider)
+            print(" RESULT: FAIL — fake-value uniqueness violated")
+        else:
+            print(divider)
+            print(" RESULT: PASS — every fake value maps to exactly one real entity ✅")
+    except FileNotFoundError:
+        print(" Skipped: source PDF not found.")
+
     print(border + "\n")
-
-
-

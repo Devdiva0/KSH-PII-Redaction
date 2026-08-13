@@ -1,6 +1,6 @@
 # PII Redaction Tool 🛡️
 
-A lightweight, high-precision Python tool for detecting personally identifiable information (PII) from corporate legal documents (PDF) and generating a redacted Word document (`.docx`) with consistent bracketed placeholders (e.g. `[PERSON_001]`, `[EMAIL_001]`).
+A lightweight, high-precision Python tool for detecting personally identifiable information (PII) from corporate legal documents (PDF) and generating a redacted Word document (`.docx`) with consistent, realistic fake replacements (e.g. `Kushal Hegde` → `John Doe`, `cs.connect@kshinternational.com` → `john.doe@example.com`).
 
 🚀 **Live Interactive Demo:** [https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/](https://devdiva0-pii-redaction-app-fn67fc.streamlit.app/)
 
@@ -22,6 +22,13 @@ A lightweight, high-precision Python tool for detecting personally identifiable 
 - **Consistent Pseudonymization**: Maps every unique original entity to the same realistic fake replacement throughout the document (e.g., `Kushal Hegde` → `John Doe`, `cs.connect@kshinternational.com` → `john.doe@example.com`), matching the assignment's required format.
 - **High Precision Detection**: High-precision structured PII detection with explicit negative controls for financial figures, order numbers, invoice numbers, page numbers and percentages.
 - **Dependency-Light**: Built with lightweight standard Python rules & `python-docx` / `pypdf` for 100% reproducibility.
+
+> [!IMPORTANT]
+> **Generalizability Notice**
+>
+> - **Structured PII detectors** (email, phone, SSN, credit card, DOB, IP address) are regex-based and **generalize to any input document** without modification.
+> - **Person names and company names** are detected via a **document-specific gazetteer** (`PERSON_NAMES`, `COMPANY_NAMES` lists in `redact_pii.py`) calibrated to the KSH International Red Herring Prospectus. Pointing this tool at a different document will still redact structured PII, but will miss person/company names not present in the gazetteer. To use on a new document, either (a) populate a new gazetteer, or (b) swap in a trained NER model.
+> - **Physical addresses** use keyword + Indian PIN code heuristics that generalize reasonably to Indian legal/financial documents but may need adjustment for other jurisdictions.
 
 ---
 
