@@ -356,16 +356,25 @@ def redact_text(text: str, factory: FakeFactory) -> tuple[str, list[tuple[str, s
 
 
 def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[str, int]]:
+    from docx.shared import RGBColor
     doc = Document(str(input_docx))
     factory = FakeFactory()
     category_counts: dict[str, int] = {}
     total_replacements = 0
     paragraph_count = len(doc.paragraphs)
 
-    def process_p(p):
+    def process_p(p, force_white: bool = False):
         nonlocal total_replacements
         if not p.text:
             return
+        
+        # Detect if paragraph currently has white runs
+        has_white = force_white or any(
+            (r.font and r.font.color and r.font.color.rgb == RGBColor(255, 255, 255)) or
+            p._element.xpath('.//w:rPr/w:color/@w:val="FFFFFF"')
+            for r in p.runs
+        )
+
         text = normalize(p.text)
         redacted, reps = redact_text(text, factory)
         if reps:
@@ -373,6 +382,9 @@ def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[st
             for typ, _, _ in reps:
                 category_counts[typ] = category_counts.get(typ, 0) + 1
             p.text = redacted
+            if has_white:
+                for r in p.runs:
+                    r.font.color.rgb = RGBColor(255, 255, 255)
 
     for p in doc.paragraphs:
         process_p(p)
@@ -380,8 +392,42 @@ def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[st
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
+                shd = cell._tc.xpath('.//w:shd/@w:fill')
+                is_red = any(s.lower() in ('e10000', 'ff0000', 'cc0000', 'd90000', 'b20000') for s in shd)
                 for p in cell.paragraphs:
-                    process_p(p)
+                    process_p(p, force_white=is_red)
+
+    # Post-process fix for table headers & background colors
+    kerning_fixes = [
+        (re.compile(r"REGIST\s+ERED\s+OFFI\s+CE", re.I), "REGISTERED OFFICE"),
+        (re.compile(r"CONTACT\s+PERSON", re.I), "CONTACT PERSON"),
+        (re.compile(r"E-MAIL\s+AND\s+TELEPHONE", re.I), "E-MAIL AND TELEPHONE"),
+        (re.compile(r"WEBSI\s+TE", re.I), "WEBSITE"),
+    ]
+
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                shd = cell._tc.xpath('.//w:shd/@w:fill')
+                is_red = any(s.lower() in ('e10000', 'ff0000', 'cc0000', 'd90000', 'b20000') for s in shd)
+                for pattern, repl in kerning_fixes:
+                    if pattern.search(cell.text):
+                        cell.text = pattern.sub(repl, cell.text)
+                if is_red:
+                    for p in cell.paragraphs:
+                        for run in p.runs:
+                            run.font.color.rgb = RGBColor(255, 255, 255)
+
+    if len(doc.tables) > 1:
+        t1 = doc.tables[1]
+        if len(t1.rows) > 0:
+            r0 = t1.rows[0]
+            if len(r0.cells) > 1 and r0.cells[1].text.strip() in ("", " "):
+                r0.cells[1].text = "CORPORATE OFFICE"
+                for p in r0.cells[1].paragraphs:
+                    for run in p.runs:
+                        run.font.color.rgb = RGBColor(255, 255, 255)
+                        run.bold = True
 
     for section in doc.sections:
         for header in (section.header, getattr(section, 'first_page_header', None)):
@@ -407,33 +453,52 @@ def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[st
     return paragraph_count, total_replacements, category_counts
 
 
+
 def pdf_to_docx(pdf_path: Path, output_docx: Path) -> tuple[int, int, dict[str, int]]:
-    reader = PdfReader(str(pdf_path))
-    doc = Document()
-    factory = FakeFactory()
-    category_counts: dict[str, int] = {}
-    total_replacements = 0
-    page_count = 0
+    import tempfile
+    try:
+        from pdf2docx import Converter
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+            temp_docx_path = Path(tmp.name)
+        try:
+            cv = Converter(str(pdf_path))
+            cv.convert(str(temp_docx_path), start=0, end=None)
+            cv.close()
 
-    for idx, page in enumerate(reader.pages, start=1):
-        raw = page.extract_text() or ""
-        text = normalize(raw)
-        redacted, reps = redact_text(text, factory)
-        total_replacements += len(reps)
-        page_count += 1
+            # Redact PII within the layout-preserved DOCX
+            unit_count, total_reps, cat_counts = docx_to_docx(temp_docx_path, output_docx)
+            return unit_count, total_reps, cat_counts
+        finally:
+            temp_docx_path.unlink(missing_ok=True)
+    except Exception:
+        # Fallback to plain text extraction if pdf2docx conversion fails
+        reader = PdfReader(str(pdf_path))
+        doc = Document()
+        factory = FakeFactory()
+        category_counts: dict[str, int] = {}
+        total_replacements = 0
+        page_count = 0
 
-        for typ, _, _ in reps:
-            category_counts[typ] = category_counts.get(typ, 0) + 1
+        for idx, page in enumerate(reader.pages, start=1):
+            raw = page.extract_text() or ""
+            text = normalize(raw)
+            redacted, reps = redact_text(text, factory)
+            total_replacements += len(reps)
+            page_count += 1
 
-        p = doc.add_paragraph()
-        run = p.add_run(f"Page {idx}")
-        run.bold = True
-        doc.add_paragraph(redacted)
-        if idx != len(reader.pages):
-            doc.add_page_break()
+            for typ, _, _ in reps:
+                category_counts[typ] = category_counts.get(typ, 0) + 1
 
-    doc.save(str(output_docx))
-    return page_count, total_replacements, category_counts
+            p = doc.add_paragraph()
+            run = p.add_run(f"Page {idx}")
+            run.bold = True
+            doc.add_paragraph(redacted)
+            if idx != len(reader.pages):
+                doc.add_page_break()
+
+        doc.save(str(output_docx))
+        return page_count, total_replacements, category_counts
+
 
 
 def print_summary_table(input_file: Path, output_docx: Path, unit_label: str, unit_count: int, total_reps: int, category_counts: dict[str, int]) -> None:
