@@ -455,8 +455,8 @@ def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[st
 
 
 def pdf_to_pdf(pdf_path: Path, output_pdf: Path) -> tuple[int, int, dict[str, int]]:
-    """Redact PII directly inside the PDF using PyMuPDF, preserving layout."""
-    import fitz  # PyMuPDF
+    """Redact PII directly inside the PDF using PyMuPDF's proper redaction workflow."""
+    import pymupdf as fitz  # PyMuPDF
 
     src = fitz.open(str(pdf_path))
     factory = FakeFactory()
@@ -469,22 +469,34 @@ def pdf_to_pdf(pdf_path: Path, output_pdf: Path) -> tuple[int, int, dict[str, in
         text = normalize(raw)
         _, reps = redact_text(text, factory)
 
-        for pii_type, original, fake in reps:
-            total_replacements += 1
-            category_counts[pii_type] = category_counts.get(pii_type, 0) + 1
+        # Track rects already annotated to avoid double-marking the same area
+        redacted_rects: set[tuple] = set()
 
-            # Find all occurrences of the original text on this page
+        for pii_type, original, fake in reps:
             hits = page.search_for(original, quads=False)
             for rect in hits:
-                # Draw white filled rectangle to cover original text
-                page.draw_rect(rect, color=(1, 1, 1), fill=(1, 1, 1))
-                # Insert fake replacement text at same position
-                page.insert_text(
-                    (rect.x0, rect.y1 - 1),
-                    fake,
-                    fontsize=max(7, min(10, rect.height * 0.85)),
-                    color=(0, 0, 0),
+                # Deduplicate overlapping/identical rects
+                key = (round(rect.x0, 1), round(rect.y0, 1),
+                       round(rect.x1, 1), round(rect.y1, 1))
+                if key in redacted_rects:
+                    continue
+                redacted_rects.add(key)
+                total_replacements += 1
+                category_counts[pii_type] = category_counts.get(pii_type, 0) + 1
+
+                # add_redact_annot: white-fills the box AND clips replacement
+                # text to the bounding rect — no overflow, no stacking
+                page.add_redact_annot(
+                    rect,
+                    text=fake,
+                    fontsize=7,
+                    text_color=(0, 0, 0),
+                    fill=(1, 1, 1),   # white background
+                    align=0,          # left-align
                 )
+
+        # Apply all redactions on this page in one pass
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
 
     src.save(str(output_pdf), garbage=4, deflate=True)
     src.close()
