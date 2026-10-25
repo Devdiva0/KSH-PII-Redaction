@@ -454,6 +454,43 @@ def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[st
 
 
 
+def pdf_to_pdf(pdf_path: Path, output_pdf: Path) -> tuple[int, int, dict[str, int]]:
+    """Redact PII directly inside the PDF using PyMuPDF, preserving layout."""
+    import fitz  # PyMuPDF
+
+    src = fitz.open(str(pdf_path))
+    factory = FakeFactory()
+    category_counts: dict[str, int] = {}
+    total_replacements = 0
+    page_count = src.page_count
+
+    for page in src:
+        raw = page.get_text("text")
+        text = normalize(raw)
+        _, reps = redact_text(text, factory)
+
+        for pii_type, original, fake in reps:
+            total_replacements += 1
+            category_counts[pii_type] = category_counts.get(pii_type, 0) + 1
+
+            # Find all occurrences of the original text on this page
+            hits = page.search_for(original, quads=False)
+            for rect in hits:
+                # Draw white filled rectangle to cover original text
+                page.draw_rect(rect, color=(1, 1, 1), fill=(1, 1, 1))
+                # Insert fake replacement text at same position
+                page.insert_text(
+                    (rect.x0, rect.y1 - 1),
+                    fake,
+                    fontsize=max(7, min(10, rect.height * 0.85)),
+                    color=(0, 0, 0),
+                )
+
+    src.save(str(output_pdf), garbage=4, deflate=True)
+    src.close()
+    return page_count, total_replacements, category_counts
+
+
 def pdf_to_docx(pdf_path: Path, output_docx: Path) -> tuple[int, int, dict[str, int]]:
     import tempfile
     try:

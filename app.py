@@ -25,19 +25,27 @@ if uploaded_file is not None:
     if st.button("🚀 Process & Redact PII", type="primary"):
         with st.spinner("Processing document and redacting sensitive PII..."):
             suffix = Path(uploaded_file.name).suffix
+            file_ext = suffix.lower()
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
                 tmp_in.write(uploaded_file.getvalue())
                 tmp_in_path = Path(tmp_in.name)
 
-            tmp_out_path = tmp_in_path.with_name(f"{tmp_in_path.stem}_redacted.docx")
+            # Output format matches input format
+            if file_ext in (".docx", ".doc"):
+                out_ext = ".docx"
+                out_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            else:
+                out_ext = ".pdf"
+                out_mime = "application/pdf"
+
+            tmp_out_path = tmp_in_path.with_name(f"{tmp_in_path.stem}_redacted{out_ext}")
 
             try:
-                file_ext = Path(uploaded_file.name).suffix.lower()
                 if file_ext in (".docx", ".doc"):
                     units, reps, cat_counts = redact_pii.docx_to_docx(tmp_in_path, tmp_out_path)
                     unit_label = "paragraphs"
                 else:
-                    units, reps, cat_counts = redact_pii.pdf_to_docx(tmp_in_path, tmp_out_path)
+                    units, reps, cat_counts = redact_pii.pdf_to_pdf(tmp_in_path, tmp_out_path)
                     unit_label = "pages"
 
                 st.success(f"✅ Successfully processed {units} {unit_label} and performed {reps} redactions!")
@@ -68,12 +76,16 @@ if uploaded_file is not None:
                 with open(tmp_out_path, "rb") as f:
                     redacted_bytes = f.read()
 
-                output_filename = "KSH_PII_Redacted_RHP.docx" if "Red Herring" in uploaded_file.name else f"{Path(uploaded_file.name).stem}_Redacted.docx"
+                stem = Path(uploaded_file.name).stem
+                output_filename = (
+                    f"KSH_PII_Redacted_RHP{out_ext}" if "Red Herring" in uploaded_file.name
+                    else f"{stem}_Redacted{out_ext}"
+                )
                 st.download_button(
-                    label="📥 Download Redacted DOCX",
+                    label=f"📥 Download Redacted {out_ext.upper().lstrip('.')}",
                     data=redacted_bytes,
                     file_name=output_filename,
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    mime=out_mime,
                     type="primary"
                 )
 
