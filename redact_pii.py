@@ -152,6 +152,12 @@ def detect_people(text: str) -> list[Span]:
     return spans
 
 
+COMPANY_PREFIXES_TO_TRIM = [
+    "BOOK RUNNING LEAD MANAGERS", "REGISTRAR TO THE OFFER",
+    "LEAD MANAGERS", "REGISTRAR", "MANAGERS", "NAME OF THE ISSUER",
+    "ISSUER", "OUR COMPANY",
+]
+
 def detect_companies(text: str) -> list[Span]:
     spans = []
     names = sorted(set(COMPANY_NAMES), key=len, reverse=True)
@@ -159,9 +165,22 @@ def detect_companies(text: str) -> list[Span]:
         pattern = re.compile(r"(?<![A-Za-z])" + re.escape(name) + r"(?![A-Za-z])", re.I)
         spans.extend(Span(m.start(), m.end(), "COMPANY") for m in pattern.finditer(text))
     for m in COMPANY_SUFFIX_RE.finditer(text):
-        candidate = m.group(0).strip()
+        s, e = m.start(), m.end()
+        val = text[s:e]
+        # Strip registration numbers like INM000013004
+        reg_m = re.match(r"^[A-Z0-9]{8,25}\s+", val)
+        if reg_m:
+            s += reg_m.end()
+            val = text[s:e]
+        # Strip header prefixes
+        for p in sorted(COMPANY_PREFIXES_TO_TRIM, key=len, reverse=True):
+            pref_m = re.match(r"^(?:" + re.escape(p) + r")\s+", val, re.I)
+            if pref_m:
+                s += pref_m.end()
+                val = text[s:e]
+        candidate = val.strip()
         if len(candidate.split()) >= 2:
-            spans.append(Span(m.start(), m.end(), "COMPANY"))
+            spans.append(Span(s, e, "COMPANY"))
     return spans
 
 
@@ -454,8 +473,32 @@ def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[st
 
 
 
+def get_rect_bg_color(page, rect) -> tuple[float, float, float]:
+    """Sample the true background color from the perimeter of the rect."""
+    import pymupdf as fitz
+    from collections import Counter
+    try:
+        clip_pix = page.get_pixmap(clip=rect, matrix=fitz.Matrix(1, 1))
+        w, h = clip_pix.width, clip_pix.height
+        if w == 0 or h == 0:
+            return (1.0, 1.0, 1.0)
+        border_pixels = []
+        for x in range(w):
+            border_pixels.append(clip_pix.pixel(x, 0)[:3])
+            border_pixels.append(clip_pix.pixel(x, h - 1)[:3])
+        for y in range(h):
+            border_pixels.append(clip_pix.pixel(0, y)[:3])
+            border_pixels.append(clip_pix.pixel(w - 1, y)[:3])
+        if not border_pixels:
+            return (1.0, 1.0, 1.0)
+        r, g, b = Counter(border_pixels).most_common(1)[0][0]
+        return (r / 255.0, g / 255.0, b / 255.0)
+    except Exception:
+        return (1.0, 1.0, 1.0)
+
+
 def pdf_to_pdf(pdf_path: Path, output_pdf: Path) -> tuple[int, int, dict[str, int]]:
-    """Redact PII directly inside the PDF using PyMuPDF's proper redaction workflow."""
+    """Redact PII directly inside the PDF preserving original background color and formatting."""
     import pymupdf as fitz  # PyMuPDF
 
     src = fitz.open(str(pdf_path))
@@ -469,47 +512,70 @@ def pdf_to_pdf(pdf_path: Path, output_pdf: Path) -> tuple[int, int, dict[str, in
         text = normalize(raw)
         _, reps = redact_text(text, factory)
 
-        # --- Phase 1: collect unique rects with their fake replacements ---
-        # Map rect-key → (pii_type, fake) so we can sample color before annotating
-        pending: dict[tuple, tuple[str, str]] = {}
+        # Track areas already redacted on this page to prevent stacking
+        covered_rects: list[fitz.Rect] = []
+
         for pii_type, original, fake in reps:
             hits = page.search_for(original, quads=False)
-            for rect in hits:
-                key = (round(rect.x0, 1), round(rect.y0, 1),
-                       round(rect.x1, 1), round(rect.y1, 1))
-                if key not in pending:
-                    pending[key] = (pii_type, fake)
+            if not hits:
+                continue
 
-        # --- Phase 2: sample background colour, then add redact annotation ---
-        for key, (pii_type, fake) in pending.items():
-            rect = fitz.Rect(key[0], key[1], key[2], key[3])
-
-            # Render a tiny pixmap of exactly this rect to read the bg colour
-            try:
-                clip_pix = page.get_pixmap(clip=rect, matrix=fitz.Matrix(1, 1))
-                cx = max(0, min(clip_pix.width  - 1, clip_pix.width  // 2))
-                cy = max(0, min(clip_pix.height - 1, clip_pix.height // 2))
-                r, g, b = clip_pix.pixel(cx, cy)[:3]
-                bg_fill = (r / 255.0, g / 255.0, b / 255.0)
-                # Perceived luminance — pick black or white text accordingly
-                lum = 0.299 * r + 0.587 * g + 0.114 * b
-                txt_color = (0.0, 0.0, 0.0) if lum > 128 else (1.0, 1.0, 1.0)
-            except Exception:
-                bg_fill = (1.0, 1.0, 1.0)
-                txt_color = (0.0, 0.0, 0.0)
-
-            page.add_redact_annot(
-                rect,
-                text=fake,
-                fontsize=7,
-                text_color=txt_color,
-                fill=bg_fill,       # matches actual cell background
-                align=0,
-            )
             total_replacements += 1
             category_counts[pii_type] = category_counts.get(pii_type, 0) + 1
 
-        # --- Phase 3: apply all redactions on this page in one pass ---
+            for line_idx, rect in enumerate(hits):
+                # Check overlap with existing rects on this page
+                if any(rect.intersects(c) and (rect & c).get_area() > 0.8 * rect.get_area() for c in covered_rects):
+                    continue
+                covered_rects.append(rect)
+
+                # Sample the actual background color from the border
+                bg_fill = get_rect_bg_color(page, rect)
+                r, g, b = bg_fill[0] * 255, bg_fill[1] * 255, bg_fill[2] * 255
+                lum = 0.299 * r + 0.587 * g + 0.114 * b
+                txt_color = (0.0, 0.0, 0.0) if lum > 128 else (1.0, 1.0, 1.0)
+
+                # For multi-line text (e.g. addresses), only display the replacement token on line 0
+                display_text = fake if line_idx == 0 else ""
+
+                # Compute optimal font size so text fits horizontally in the rect
+                fontsize = max(4.0, min(7.5, rect.height * 0.9))
+                if display_text:
+                    # Aggressively shrink font to fit in the rect width
+                    min_fs = 2.5
+                    while fontsize > min_fs:
+                        tw = fitz.get_text_length(display_text, fontname="helv", fontsize=fontsize)
+                        if tw <= rect.width * 0.95:
+                            break
+                        fontsize -= 0.25
+                    # If still doesn't fit, abbreviate the token
+                    tw = fitz.get_text_length(display_text, fontname="helv", fontsize=fontsize)
+                    if tw > rect.width * 0.95:
+                        # Try abbreviated form: [P_007] instead of [PERSON_007]
+                        abbrev = re.sub(r'\[([A-Z])[A-Z_]*?_(\d+)\]', r'[\1_\2]', display_text)
+                        tw2 = fitz.get_text_length(abbrev, fontname="helv", fontsize=fontsize)
+                        if tw2 <= rect.width * 0.95:
+                            display_text = abbrev
+                        else:
+                            # Last resort: use just the number tag
+                            short = re.sub(r'\[[A-Z_]+_(\d+)\]', r'[#\1]', display_text)
+                            tw3 = fitz.get_text_length(short, fontname="helv", fontsize=fontsize)
+                            if tw3 <= rect.width * 0.95:
+                                display_text = short
+                            else:
+                                # Blank it out if truly too narrow
+                                display_text = ""
+
+                page.add_redact_annot(
+                    rect,
+                    text=display_text,
+                    fontsize=fontsize,
+                    text_color=txt_color,
+                    fill=bg_fill,
+                    align=fitz.TEXT_ALIGN_LEFT,
+                )
+
+        # Apply all page redactions cleanly in one pass
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
 
     src.save(str(output_pdf), garbage=4, deflate=True)
