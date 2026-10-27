@@ -184,27 +184,45 @@ def detect_companies(text: str) -> list[Span]:
     return spans
 
 
+ADDR_START_RE = re.compile(
+    r"(?i)\b(?:[A-Z]-\d{1,4}|\d{1,4}\s*-\s*\d{1,4}|\d{1,4}(?:/\d{1,4})+|\d{1,4},|PCNTDA|Gat No\.?|Plot No\.?|S\.?\s?no\.?|CTS No\.?|Flat No\.?|Wing\s+[A-Z]|Tower\s+\d+|Building\s+No\.?\s*\d+)\b"
+)
+TRAIL_STATE_RE = re.compile(
+    r"^(?:,\s*(?:\([A-Za-z\s]+\)|[A-Za-z\s]+)?\s*,?\s*India\b|,\s*(?:\([A-Za-z\s]+\)|[A-Za-z\s]+)\b)+", re.I
+)
+
+
 def detect_addresses(text: str) -> list[Span]:
     spans = []
     for m in ADDRESS_LABEL_RE.finditer(text):
         spans.append(Span(m.start(), m.end(), "ADDRESS"))
 
     # Catch addresses ending in an Indian PIN. We anchor on a street/building
-    # number or an address keyword, then include the run up to the PIN.
+    # number or an address keyword, then include the run up to the PIN and following state/country.
     previous_pin_end = 0
     for pin in PIN_RE.finditer(text):
-        start = max(previous_pin_end, pin.start() - 220)
+        start = max(previous_pin_end, pin.start() - 250)
         window = text[start:pin.end()]
         candidates = []
-        for m in re.finditer(r"(?i)\b(?:\d{1,4}(?:/\d{1,4})+|\d{1,4},|PCNTDA|Gat No\.?|Plot No\.?|S\.?\s?no\.?|CTS No\.?|Flat No\.?|\d{3,4}-\d{3,4})\b", window):
+        for m in ADDR_START_RE.finditer(window):
             candidates.append(m.start())
         for m in ADDRESS_KEYWORDS.finditer(window):
             candidates.append(m.start())
         if candidates:
             s = min(candidates)
-            tail = window[s:]
-            if ADDRESS_KEYWORDS.search(tail) or re.search(r"\d{1,4}(?:/\d{1,4})+", tail):
-                spans.append(Span(start + s, pin.end(), "ADDRESS"))
+            pre_win = window[max(0, s - 45):s]
+            pre_m = re.search(r"(?i)(?:[A-Z]-\d{1,4}|\d{1,4}\s*-\s*\d{1,4}|\d{1,4})\s*,\s*(?:(?:Wing\s+[A-Z]|Embassy\s+\d+|(?:1st|2nd|3rd|\d+th)\s+Floor)\s*,\s*)*$", pre_win)
+            if pre_m:
+                s = max(0, s - (len(pre_win) - pre_m.start()))
+
+            end = pin.end()
+            m_trail = TRAIL_STATE_RE.match(text[pin.end():pin.end() + 80])
+            if m_trail:
+                end = pin.end() + m_trail.end()
+
+            matched = text[start + s:end]
+            end = end - (len(matched) - len(matched.rstrip(" ;,:")))
+            spans.append(Span(start + s, end, "ADDRESS"))
         previous_pin_end = pin.end()
     return spans
 
@@ -473,28 +491,55 @@ def docx_to_docx(input_docx: Path, output_docx: Path) -> tuple[int, int, dict[st
 
 
 
-def get_rect_bg_color(page, rect) -> tuple[float, float, float]:
-    """Sample the true background color from the perimeter of the rect."""
+PROTECTED_LABELS = [
+    "OUR PROMOTERS:", "PROMOTERS:", "BOOK RUNNING LEAD MANAGERS", "REGISTRAR TO THE OFFER",
+    "REGISTERED OFFICE:", "CORPORATE OFFICE:", "CONTACT PERSON:",
+    "TELEPHONE:", "TEL:", "E-MAIL:", "EMAIL:", "WEBSITE:", "INVESTOR GRIEVANCE",
+    "SEBI REGISTRATION NUMBER:", "SEBI REGISTRATI", "LISTING", "BID/ OFFER PERIOD",
+    "BID/OFFER OPENS ON", "BID/OFFER CLOSES ON", "ANCHOR INVESTOR BIDDING DATE",
+]
+
+
+def clip_against_labels(rect, label_rects):
     import pymupdf as fitz
-    from collections import Counter
-    try:
-        clip_pix = page.get_pixmap(clip=rect, matrix=fitz.Matrix(1, 1))
-        w, h = clip_pix.width, clip_pix.height
-        if w == 0 or h == 0:
-            return (1.0, 1.0, 1.0)
-        border_pixels = []
-        for x in range(w):
-            border_pixels.append(clip_pix.pixel(x, 0)[:3])
-            border_pixels.append(clip_pix.pixel(x, h - 1)[:3])
-        for y in range(h):
-            border_pixels.append(clip_pix.pixel(0, y)[:3])
-            border_pixels.append(clip_pix.pixel(w - 1, y)[:3])
-        if not border_pixels:
-            return (1.0, 1.0, 1.0)
-        r, g, b = Counter(border_pixels).most_common(1)[0][0]
-        return (r / 255.0, g / 255.0, b / 255.0)
-    except Exception:
-        return (1.0, 1.0, 1.0)
+    r = fitz.Rect(rect)
+    for lbl_r in label_rects:
+        if r.intersects(lbl_r):
+            if lbl_r.x1 > r.x0 and lbl_r.x0 <= r.x0 and (lbl_r.x1 - r.x0) < r.width * 0.4:
+                r.x0 = lbl_r.x1
+            elif lbl_r.y1 > r.y0 and lbl_r.y0 <= r.y0 and (lbl_r.y1 - r.y0) < r.height * 0.5:
+                r.y0 = lbl_r.y1
+    return r
+
+
+def is_complete_hit(page, rect, needle: str) -> bool:
+    clip_txt = page.get_text("text", clip=rect).lower()
+    needle_words = [w.lower() for w in needle.split()]
+    if len(needle_words) <= 1:
+        return True
+    return needle_words[0] in clip_txt and needle_words[-1] in clip_txt
+
+
+def get_rect_bg_color(page, rect, drawings=None) -> tuple[float, float, float]:
+    """Sample the true background color from vector drawings or perimeter."""
+    import pymupdf as fitz
+    if drawings is None:
+        drawings = page.get_drawings()
+    cx = (rect.x0 + rect.x1) / 2
+    cy = (rect.y0 + rect.y1) / 2
+    pt = fitz.Point(cx, cy)
+    best_fill = None
+    best_area = float("inf")
+    for d in drawings:
+        fill = d.get("fill")
+        if fill is not None and d["rect"].contains(pt):
+            area = d["rect"].get_area()
+            if area < best_area:
+                best_area = area
+                best_fill = fill
+    if best_fill is not None:
+        return best_fill
+    return (1.0, 1.0, 1.0)
 
 
 def pdf_to_pdf(pdf_path: Path, output_pdf: Path) -> tuple[int, int, dict[str, int]]:
@@ -512,71 +557,60 @@ def pdf_to_pdf(pdf_path: Path, output_pdf: Path) -> tuple[int, int, dict[str, in
         text = normalize(raw)
         _, reps = redact_text(text, factory)
 
-        # Track areas already redacted on this page to prevent stacking
-        covered_rects: list[fitz.Rect] = []
+        drawings = page.get_drawings()
+        label_rects = []
+        for pl in PROTECTED_LABELS:
+            label_rects.extend(page.search_for(pl))
 
+        covered_rects: list[fitz.Rect] = []
+        to_insert: list[tuple[fitz.Rect, str, tuple[float, float, float]]] = []
+
+        unique_reps: dict[tuple[str, str], str] = {}
         for pii_type, original, fake in reps:
+            if (pii_type, original) not in unique_reps:
+                unique_reps[(pii_type, original)] = fake
+
+        for (pii_type, original), fake in unique_reps.items():
             hits = page.search_for(original, quads=False)
             if not hits:
                 continue
 
-            total_replacements += 1
-            category_counts[pii_type] = category_counts.get(pii_type, 0) + 1
-
-            for line_idx, rect in enumerate(hits):
-                # Check overlap with existing rects on this page
-                if any(rect.intersects(c) and (rect & c).get_area() > 0.8 * rect.get_area() for c in covered_rects):
+            hits = sorted(hits, key=lambda r: (r.y0, r.x0))
+            for idx, rect in enumerate(hits):
+                clipped_rect = clip_against_labels(rect, label_rects)
+                if clipped_rect.is_empty or clipped_rect.width <= 2 or clipped_rect.height <= 2:
                     continue
-                covered_rects.append(rect)
 
-                # Sample the actual background color from the border
-                bg_fill = get_rect_bg_color(page, rect)
-                r, g, b = bg_fill[0] * 255, bg_fill[1] * 255, bg_fill[2] * 255
-                lum = 0.299 * r + 0.587 * g + 0.114 * b
-                txt_color = (0.0, 0.0, 0.0) if lum > 128 else (1.0, 1.0, 1.0)
+                if any(clipped_rect.intersects(c) and (clipped_rect & c).get_area() > 0.8 * clipped_rect.get_area() for c in covered_rects):
+                    continue
+                covered_rects.append(clipped_rect)
 
-                # For multi-line text (e.g. addresses), only display the replacement token on line 0
-                display_text = fake if line_idx == 0 else ""
+                total_replacements += 1
+                category_counts[pii_type] = category_counts.get(pii_type, 0) + 1
 
-                # Compute optimal font size so text fits horizontally in the rect
-                fontsize = max(4.0, min(7.5, rect.height * 0.9))
+                bg_fill = get_rect_bg_color(page, clipped_rect, drawings)
+                r_lum = 0.299 * bg_fill[0] * 255 + 0.587 * bg_fill[1] * 255 + 0.114 * bg_fill[2] * 255
+                txt_color = (0.0, 0.0, 0.0) if r_lum > 128 else (1.0, 1.0, 1.0)
+
+                complete = is_complete_hit(page, clipped_rect, original)
+                display_text = fake if (complete or idx == 0) else ""
+
+                page.add_redact_annot(clipped_rect, fill=bg_fill)
+
                 if display_text:
-                    # Aggressively shrink font to fit in the rect width
-                    min_fs = 2.5
-                    while fontsize > min_fs:
-                        tw = fitz.get_text_length(display_text, fontname="helv", fontsize=fontsize)
-                        if tw <= rect.width * 0.95:
-                            break
-                        fontsize -= 0.25
-                    # If still doesn't fit, abbreviate the token
-                    tw = fitz.get_text_length(display_text, fontname="helv", fontsize=fontsize)
-                    if tw > rect.width * 0.95:
-                        # Try abbreviated form: [P_007] instead of [PERSON_007]
-                        abbrev = re.sub(r'\[([A-Z])[A-Z_]*?_(\d+)\]', r'[\1_\2]', display_text)
-                        tw2 = fitz.get_text_length(abbrev, fontname="helv", fontsize=fontsize)
-                        if tw2 <= rect.width * 0.95:
-                            display_text = abbrev
-                        else:
-                            # Last resort: use just the number tag
-                            short = re.sub(r'\[[A-Z_]+_(\d+)\]', r'[#\1]', display_text)
-                            tw3 = fitz.get_text_length(short, fontname="helv", fontsize=fontsize)
-                            if tw3 <= rect.width * 0.95:
-                                display_text = short
-                            else:
-                                # Blank it out if truly too narrow
-                                display_text = ""
-
-                page.add_redact_annot(
-                    rect,
-                    text=display_text,
-                    fontsize=fontsize,
-                    text_color=txt_color,
-                    fill=bg_fill,
-                    align=fitz.TEXT_ALIGN_LEFT,
-                )
+                    to_insert.append((clipped_rect, display_text, txt_color))
 
         # Apply all page redactions cleanly in one pass
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+
+        # Draw replacement tokens at the exact baselines with matching font sizes
+        for rect, disp_text, color in to_insert:
+            fontsize = max(4.5, min(10.0, rect.height * 0.82))
+            tw = fitz.get_text_length(disp_text, fontname="helv", fontsize=fontsize)
+            if tw > rect.width and rect.width > 12:
+                fontsize = max(3.8, fontsize * (rect.width / tw))
+            baseline = fitz.Point(rect.x0, rect.y1 - rect.height * 0.18)
+            page.insert_text(baseline, disp_text, fontsize=fontsize, fontname="helv", color=color)
 
     src.save(str(output_pdf), garbage=4, deflate=True)
     src.close()
