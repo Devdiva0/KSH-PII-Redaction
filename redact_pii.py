@@ -469,33 +469,47 @@ def pdf_to_pdf(pdf_path: Path, output_pdf: Path) -> tuple[int, int, dict[str, in
         text = normalize(raw)
         _, reps = redact_text(text, factory)
 
-        # Track rects already annotated to avoid double-marking the same area
-        redacted_rects: set[tuple] = set()
-
+        # --- Phase 1: collect unique rects with their fake replacements ---
+        # Map rect-key → (pii_type, fake) so we can sample color before annotating
+        pending: dict[tuple, tuple[str, str]] = {}
         for pii_type, original, fake in reps:
             hits = page.search_for(original, quads=False)
             for rect in hits:
-                # Deduplicate overlapping/identical rects
                 key = (round(rect.x0, 1), round(rect.y0, 1),
                        round(rect.x1, 1), round(rect.y1, 1))
-                if key in redacted_rects:
-                    continue
-                redacted_rects.add(key)
-                total_replacements += 1
-                category_counts[pii_type] = category_counts.get(pii_type, 0) + 1
+                if key not in pending:
+                    pending[key] = (pii_type, fake)
 
-                # add_redact_annot: white-fills the box AND clips replacement
-                # text to the bounding rect — no overflow, no stacking
-                page.add_redact_annot(
-                    rect,
-                    text=fake,
-                    fontsize=7,
-                    text_color=(0, 0, 0),
-                    fill=(1, 1, 1),   # white background
-                    align=0,          # left-align
-                )
+        # --- Phase 2: sample background colour, then add redact annotation ---
+        for key, (pii_type, fake) in pending.items():
+            rect = fitz.Rect(key[0], key[1], key[2], key[3])
 
-        # Apply all redactions on this page in one pass
+            # Render a tiny pixmap of exactly this rect to read the bg colour
+            try:
+                clip_pix = page.get_pixmap(clip=rect, matrix=fitz.Matrix(1, 1))
+                cx = max(0, min(clip_pix.width  - 1, clip_pix.width  // 2))
+                cy = max(0, min(clip_pix.height - 1, clip_pix.height // 2))
+                r, g, b = clip_pix.pixel(cx, cy)[:3]
+                bg_fill = (r / 255.0, g / 255.0, b / 255.0)
+                # Perceived luminance — pick black or white text accordingly
+                lum = 0.299 * r + 0.587 * g + 0.114 * b
+                txt_color = (0.0, 0.0, 0.0) if lum > 128 else (1.0, 1.0, 1.0)
+            except Exception:
+                bg_fill = (1.0, 1.0, 1.0)
+                txt_color = (0.0, 0.0, 0.0)
+
+            page.add_redact_annot(
+                rect,
+                text=fake,
+                fontsize=7,
+                text_color=txt_color,
+                fill=bg_fill,       # matches actual cell background
+                align=0,
+            )
+            total_replacements += 1
+            category_counts[pii_type] = category_counts.get(pii_type, 0) + 1
+
+        # --- Phase 3: apply all redactions on this page in one pass ---
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
 
     src.save(str(output_pdf), garbage=4, deflate=True)
