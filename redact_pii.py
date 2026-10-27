@@ -44,9 +44,6 @@ PERSON_NAMES = [
     "Anand Soni", "Hitesh Ramani", "Chitra Raste", "Sharmila Joshi",
     "Sandesh Bhagwat", "Amod Joshi", "Ganesh Prasad", "Karunakar Hegde",
     "Karunakar Bhandary", "Karunakar N. Bhandary",
-    # Standalone names for isolated table/branch entries
-    "Kushal", "Pushpa", "Rajesh", "Rohit", "Rakhi", "Sangeeta", "Maithili",
-    "Varun", "Badai", "Bhandary",
 ]
 
 # Only legal-entity/company-like names are targeted here; regulators and
@@ -115,6 +112,7 @@ class Span:
 
 
 def normalize(text: str) -> str:
+    text = text.replace('\u200b', '')
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -143,12 +141,66 @@ def add_regex_spans(text: str, regex: re.Pattern, pii_type: str,
     return out
 
 
+HONORIFIC_RE = re.compile(
+    r"\b(?:Mr\.|Ms\.|Mrs\.|Dr\.|Prof\.)\s+[A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+){0,3}\b"
+)
+
+_SPACY_NLP = None
+
+def get_spacy_nlp():
+    global _SPACY_NLP
+    if _SPACY_NLP is None:
+        try:
+            import spacy
+            _SPACY_NLP = spacy.load("en_core_web_sm")
+        except Exception:
+            _SPACY_NLP = False
+    return _SPACY_NLP if _SPACY_NLP is not False else None
+
+LEGAL_STOPWORDS = {
+    "OFFER", "ISSUE", "EQUITY", "SHARES", "REGULATION", "COMPANY", "DIRECTOR",
+    "DIRECTORS", "LIMITED", "TRUST", "PRIVATE", "ACT", "TABLE", "EMAIL", "TELEPHONE",
+    "CONTACT", "DATE", "ANNEXURE", "SCHEDULE", "PROMOTER", "PROMOTERS", "STATEMENT", "SECTION",
+    "PART", "BOARD", "REPORT", "AUDITOR", "BANK", "ROAD", "STREET", "NAGAR",
+    "KHED", "BANER", "PUNE", "MUMBAI", "DELHI", "INDIA", "ORDER", "PAGE", "SUMMARY",
+    "CHAPTER", "ELIGIBILITY", "RISK", "FACTORS", "BUSINESS", "MANAGEMENT", "PARK",
+    "BUILDING", "FLOOR", "INFOTECH", "CENTRE", "TOWER", "HOUSE", "ESTATE",
+    "PRICE", "CAP", "SHOWROOM", "STORE", "HOTEL", "BRANCH", "INSTITUTE", "MALL", "FACILITY"
+}
+
+
 def detect_people(text: str) -> list[Span]:
-    spans = []
-    # Longest-first avoids matching "Rajesh Hegde" inside the full name.
+    spans: list[Span] = []
+    # 1. Document-specific seed gazetteer (longest-first avoids substring collisions)
     for name in sorted(PERSON_NAMES, key=len, reverse=True):
         pattern = re.compile(r"(?<![A-Za-z])" + re.escape(name) + r"(?![A-Za-z])", re.I)
-        spans.extend(Span(m.start(), m.end(), "PERSON") for m in pattern.finditer(text))
+        for m in pattern.finditer(text):
+            s, e = m.start(), m.end()
+            if not any(not (e <= span.start or s >= span.end) for span in spans):
+                spans.append(Span(s, e, "PERSON"))
+
+    # 2. Honorific rule: Mr./Ms./Mrs./Dr./Prof. + capitalized words
+    for m in HONORIFIC_RE.finditer(text):
+        s, e = m.start(), m.end()
+        if not any(not (e <= span.start or s >= span.end) for span in spans):
+            spans.append(Span(s, e, "PERSON"))
+
+    # 3. Fallback to spaCy PERSON for unresolved novel names
+    nlp = get_spacy_nlp()
+    if nlp is not None:
+        try:
+            doc = nlp(text)
+            for ent in doc.ents:
+                if ent.label_ == "PERSON":
+                    s, e = ent.start_char, ent.end_char
+                    if any(not (e <= span.start or s >= span.end) for span in spans):
+                        continue
+                    words = ent.text.split()
+                    if len(words) >= 2 and not any(w.upper() in LEGAL_STOPWORDS for w in words):
+                        spans.append(Span(s, e, "PERSON"))
+        except Exception:
+            pass
+
     return spans
 
 

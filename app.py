@@ -12,9 +12,9 @@ st.set_page_config(
 st.title("🛡️ PII Redaction Tool")
 st.markdown(
     "Upload a **PDF or DOCX document** to automatically detect personally "
-    "identifiable information (PII) and download a redacted `.docx` document "
-    "with consistent realistic fake replacements (e.g. `Kushal Hegde` → `John Doe`, "
-    "`cs.connect@ksh...` → `john.doe@example.com`)."
+    "identifiable information (PII) and download a sanitized document "
+    "with consistent pseudonymized bracketed tokens (e.g. `Kushal Hegde` → `[PERSON_001]`, "
+    "`cs.connect@ksh...` → `[EMAIL_001]`) for zero-leak audit compliance."
 )
 
 uploaded_file = st.file_uploader("Choose a PDF or DOCX file", type=["pdf", "docx", "doc"])

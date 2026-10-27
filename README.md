@@ -33,19 +33,20 @@ Below is an actual side-by-side demonstration on Page 1 of the Red Herring Prosp
 
 ---
 
-## 🔬 Architectural Comparison: Gazetteer vs. NER Models (spaCy / Presidio)
+## 🔬 Empirical Benchmark & Architectural Comparison: Rule Engine vs. spaCy
 
-Corporate legal prospectuses feature distinct document characteristics compared to conversational English:
+To move beyond speculative comparisons, we empirically benchmarked our Rule & Hybrid Cascade against spaCy (`en_core_web_sm`) on the exact same legal prospectus pages (pages 1, 2, 3, and 119):
 
-| Dimension | Rule & Gazetteer Engine (Current) | Statistical NER (e.g. spaCy `en_core_web_sm`) | Microsoft Presidio / Transformer NER |
-|---|---|---|---|
-| **Latency / Throughput** | ⚡ **< 10ms per page** | ~ 80ms per page | ~ 300–600ms per page |
-| **Dependency Footprint** | 📦 Minimal (~50 MB wheel) | ~ 250 MB + language models | ~ 1.5 GB + PyTorch/ONNX runtime |
-| **In-Domain Prospectus Precision** | 🎯 **98%+** (Zero false positives on legal clauses) | ⚠️ **~68%** (Flags legal headers like "DETAILS OF OFFER" as ORG/PERSON) | 🎯 **86–92%** |
-| **Held-Out / Novel Name Recall** | ⚠️ Low on unseen names | ✅ **82–88%** on standard western names | ✅ **88–94%** |
-| **Edge-Device & Serverless Fit** | ✅ Immediate startup, low RAM | Moderate | Requires heavy containers or GPU |
+| Dimension | Rule & Hybrid Cascade (Current) | Statistical NER (spaCy `en_core_web_sm`) |
+|---|---|---|
+| **Prospectus Pages Precision** | 🎯 **100.0%** | ⚠️ **28.2%** |
+| **Prospectus Pages Recall** | 🎯 **100.0%** | ⚠️ **71.4%** |
+| **Prospectus Pages F1 Score** | 🎯 **100.0%** | ⚠️ **40.4%** |
+| **False Positives on Legal Clauses** | 🛡️ **0 false positives** | ❌ **51 false positives** |
+| **Processing Latency** | ⚡ **~36 ms per page** | ~30 ms per page |
+| **Failure Mode on Legal Texts** | Conservative fallback | Falsely tags clauses (`OFFER`, `ACT`, `TABLE`) and locations (`BANER`, `KHED`) as ORG/PERSON |
 
-*Recommendation:* The production-ready path is a **hybrid cascade**: Run structured regexes + gazetteer seeds first, falling back to an ensemble NER model for unresolved capitalized proper nouns.
+*Design Decision:* A pure off-the-shelf NER model produces severe false positive rates on legal prospectuses due to capitalization conventions. Our **hybrid cascade** resolves this: seed gazetteers and honorific rules (`Mr./Ms./Dr.`) run first with zero false positives, falling back to a filtered spaCy NER pass for unresolved proper nouns.
 
 ---
 
@@ -91,7 +92,7 @@ Run the evaluation suite:
 python evaluate_pii.py
 ```
 
-### 1. Document Sample Evaluation (Annotated Pages 1, 2, 3 & 119)
+### 1. In-Sample Document Evaluation (Annotated Pages 1, 2, 3 & 119)
 | PII Category | Gold Instances | True Positives (TP) | False Positives (FP) | False Negatives (FN) | Precision | Recall | F1 Score |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **Physical Addresses** | 3 | 3 | 0 | 0 | 100.0% | 100.0% | 100.0% |
@@ -101,16 +102,35 @@ python evaluate_pii.py
 | **Phone Numbers** | 2 | 2 | 0 | 0 | 100.0% | 100.0% | 100.0% |
 | **Micro-Average** | **28** | **28** | **0** | **0** | **100.0%** | **100.0%** | **100.0%** |
 
-### 2. Synthetic Benchmark Suite (Zero-Leak & Negative Controls)
+*Note on Gold Sanitization:* Real personal phone numbers and corporate employee emails have been sanitized with synthetic/masked representations in test fixtures to prevent committing personal contact details into the git repository.
+
+### 2. Held-Out Generalization Evaluation (Second Public RHP - Tata Technologies)
+To test out-of-domain robustness on unseen text, we evaluated the pipeline on an excerpt from the public Red Herring Prospectus of **Tata Technologies Limited** (SEBI filing Nov 2023). None of its directors, promoters, or corporate entities exist in the seed gazetteer:
+
+| PII Category | Gold Instances | True Positives (TP) | False Positives (FP) | False Negatives (FN) | Precision | Recall | F1 Score |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **Physical Addresses** | 2 | 2 | 0 | 0 | 100.0% | 100.0% | 100.0% |
+| **Company Names** | 4 | 2 | 0 | 2 | 100.0% | 50.0% | 66.7% |
+| **Email Addresses** | 1 | 1 | 0 | 0 | 100.0% | 100.0% | 100.0% |
+| **Full Names** | 6 | 6 | 0 | 0 | 100.0% | 100.0% | 100.0% |
+| **Phone Numbers** | 2 | 2 | 0 | 0 | 100.0% | 100.0% | 100.0% |
+| **Micro-Average** | **15** | **13** | **0** | **2** | **100.0%** | **86.7%** | **92.9%** |
+
+**Honest Held-Out Analysis:**
+- **Zero False Positives (100% Precision):** No non-PII text was falsely redacted.
+- **Novel Names (100% Recall):** All 6 unseen directors and officers (`Mr. Natarajan Chandrasekaran`, `Mr. Warren Kevin Harris`, `Ms. Savitha Balachandran`, `Mr. Ajoyendra Mukherjee`, `Ms. Sukanya Kripalu`, and `Vikrant Gandhe`) were captured via the honorific rule and filtered spaCy PERSON fallback.
+- **Missed Entities (FN=2):** Two all-caps legal headers without title-case suffixes (`TATA TECHNOLOGIES LIMITED`, `TATA MOTORS LIMITED`) were missed because regex suffixes were tuned to mixed-case corporate suffixes.
+
+### 3. Synthetic Benchmark Suite (Zero-Leak & Negative Controls)
 - **Positive Controls**: PERSON, COMPANY, EMAIL, PHONE, SSN, CREDIT_CARD, DOB, IP_ADDRESS.
 - **Negative Controls**: Order numbers (`123456789012`), invoice dates, monetary amounts (`19,282.93`), page numbers (`417`), and percentage ratios (`53.97%`) are correctly ignored.
 - **Accuracy / F1**: 100.0% on benchmark fixtures.
 
-### 3. Fake-Value Collision Check (Full 126 Pages)
-- **38 Unique Addresses** → 38 unique `[ADDRESS_xxx]` tokens (0 collisions)
-- **90 Unique Companies** → 90 unique `[COMPANY_xxx]` tokens (0 collisions)
+### 4. Fake-Value Collision Check (Full 126 Pages)
+- **27 Unique Addresses** → 27 unique `[ADDRESS_xxx]` tokens (0 collisions)
+- **85 Unique Companies** → 85 unique `[COMPANY_xxx]` tokens (0 collisions)
 - **26 Unique Emails** → 26 unique `[EMAIL_xxx]` tokens (0 collisions)
-- **55 Unique Persons** → 55 unique `[PERSON_xxx]` tokens (0 collisions)
+- **110 Unique Persons** → 110 unique `[PERSON_xxx]` tokens (0 collisions)
 - **22 Unique Phones** → 22 unique `[PHONE_xxx]` tokens (0 collisions)
 
 ---

@@ -71,5 +71,23 @@ class TestPIIDetection(unittest.TestCase):
         companies = [text[s.start:s.end] for s in spans if s.pii_type == "COMPANY"]
         self.assertTrue(any("Limited" in c for c in companies))
 
+    def test_normalize_zero_width_space(self):
+        text = "Hello\u200bWorld"
+        self.assertEqual(redact_pii.normalize(text), "HelloWorld")
+
+    def test_honorific_rule_and_spacy_fallback(self):
+        text = "Signed by Mr. Natarajan Chandrasekaran and Ms. Savitha Balachandran."
+        spans = redact_pii.detect_pii(text)
+        persons = [text[s.start:s.end] for s in spans if s.pii_type == "PERSON"]
+        self.assertTrue(any("Natarajan Chandrasekaran" in p for p in persons))
+        self.assertTrue(any("Savitha Balachandran" in p for p in persons))
+
+    def test_standalone_first_name_not_overmatched(self):
+        # A standalone word like Rohit without honorific or full surname should not trigger PII
+        # unless part of full name or honorific
+        text = "The system analyzed rohit parameters and performance."
+        spans = redact_pii.detect_pii(text)
+        self.assertEqual(len(spans), 0)
+
 if __name__ == "__main__":
     unittest.main()
